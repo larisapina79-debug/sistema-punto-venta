@@ -1,0 +1,23 @@
+{
+  "flutter": {
+    "platforms": {
+      "android": {
+        "default": {
+          "projectId": "punto-de-venta-7856d",
+          "appId": "1:681747737425:android:TU_APP_ID_ANDROID",
+          "fileOutput": "android/app/google-services.json"
+        }
+      },
+      "dart": {
+        "lib/firebase_options.dart": {
+          "projectId": "punto-de-venta-7856d",
+          "configurations": {
+            "android": "1:681747737425:android:TU_APP_ID_ANDROID",
+            "web": "1:681747737425:web:c0e1be1c63d43fb6360170",
+            "windows": "1:681747737425:web:c0e1be1c63d43fb6360170"
+          }
+        }
+      }
+    }
+  }
+}
