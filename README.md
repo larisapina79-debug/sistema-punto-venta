@@ -1,17 +1,69 @@
 # puntoventa
+El sistema de punto de venta , desarrollado con flutter, esta diseñado para funciones en dispositivos móviles y web
+el sistema permite gestionar productos, usuarios,sucursales,inventario, ventas y corte de caja desde una misma aplicación, utilizando Firebase como parte de la infrestructura del proyecto.
 
-A new Flutter project.
+## Tecnologías utilizadas
 
-## Getting Started
+Flutter- Framework para el desarrollo de la aplicación.
+Dart- Lenguaje de programación.
+Firebase- Servicios de backend y autenticación
 
-This project is a starting point for a Flutter application.
+## Roles del sistema
+El sistema contempla tres tipos de usuarios:
+ Administrador
+ Supervisor
+ Empleado
 
-A few resources to get you started if this is your first Flutter project:
+## Módulos principales
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+-Usuarios
+inicio de sesión
+Registro de usuarios
+Perfiles
+Edición de información
+Consulta de usuario
+Administración de roles 
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+-Producto
+Registraro de productos
+Consulta de productos
+Edición de productos
+
+-Sucursales
+Registro de sucursales
+consulta de sucursales
+Edición de sucursales
+
+-inventario
+Registro de inventario
+Consulta de inventario
+Edición de inventario
+
+-Ventas
+Registro de ventas
+Selección de forma de pago
+consulta de venta 
+
+-Corte de caja
+Apertura de caja
+Gestión del corte de caja 
+cierre de caja
+Consulta del historial de cortes
+
+## Seguridad 
+El acceso a las diferentes funciones del sistema depende del rol de usuario.
+
+Los permisos se Controlan mediante la autenticación y las reglas de seguridad configuradas en firebase
+
+Las contraseñas no deben alamacenarse directamente en Firestore. Se recominda utilizar Firebase Authentication
+
+# Estado del proyecto 
+En desarrollo
+
+# Autor
+
+Larisa Piña Cortez
+
+
+
+
