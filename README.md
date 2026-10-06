@@ -55,14 +55,10 @@ El acceso a las diferentes funciones del sistema depende del rol de usuario.
 
 Los permisos se Controlan mediante la autenticación y las reglas de seguridad configuradas en firebase
 
-Las contraseñas no deben alamacenarse directamente en Firestore. Se recominda utilizar Firebase Authentication
-
 # Estado del proyecto 
 En desarrollo
 
-# Autor
 
-Larisa Piña Cortez
 
 
 

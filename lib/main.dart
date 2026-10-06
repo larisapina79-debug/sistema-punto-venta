@@ -1,6 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart';
+import 'widgets/app_header.dart';
+import 'screens/auth/login_screen.dart';
+import 'screens/users/users_screen.dart';
+import 'services/auth_service.dart';
+
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -8,7 +13,7 @@ Future<void> main() async {
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
-
+    await AuthService().restore();
   runApp(const MyApp());
 }
 
@@ -20,15 +25,45 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       title: 'Punto de Venta',
       debugShowCheckedModeBanner: false,
-      home: Scaffold(
-        appBar: AppBar(
-          title: const Text('Punto de Venta'),
-        ),
-        body: const Center(
-          child: Text(
-            'Firebase conectado correctamente',
-            style: TextStyle(fontSize: 20),
-          ),
+      initialRoute: Session.user == null ? '/login' : '/ventas',
+    routes: {
+        for (final item in navItems)
+          item.route: (_) =>
+              PlaceholderScreen(title: item.label, route: item.route),
+        '/login': (_) => const LoginScreen(),
+        '/usuarios': (_) => const UsersScreen(),
+      },
+    );
+  }
+}
+
+
+class PlaceholderScreen extends StatelessWidget {
+  final String title;
+  final String route;
+
+  const PlaceholderScreen({
+    super.key,
+    required this.title,
+    required this.route,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppHeader(currentRoute: route),
+      drawer: AppDrawer(currentRoute: route),
+      body: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(title, style: const TextStyle(fontSize: 28)),
+            const SizedBox(height: 12),
+            const Text(
+              'Firebase conectado correctamente',
+              style: TextStyle(fontSize: 20),
+            ),
+          ],
         ),
       ),
     );
