@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
 import '../screens/users/user_detail_screen.dart';
+import '../screens/cash_closures/cash_register_history_screen.dart';
+import '../screens/cash_closures/close_cash_register_screen.dart';
 
 const Color kGreen = Color.fromARGB(255, 99, 183, 196);
 const Color kBlueUser = Color.fromARGB(255, 99, 183, 196);
@@ -50,7 +52,8 @@ class AppHeader extends StatelessWidget implements PreferredSizeWidget {
     }
     return navItems.where((item) {
       return item.route != '/usuarios' &&
-          item.route != '/sucursales';
+          item.route != '/sucursales'&&
+          item.route != '/cortes';
     }).toList();
   }
 
@@ -67,7 +70,9 @@ class AppHeader extends StatelessWidget implements PreferredSizeWidget {
       toolbarHeight: 70,
       automaticallyImplyLeading: false,
       flexibleSpace: wide
-          ? Center(
+          ? SizedBox(
+              height: 70,
+              width: double.infinity,
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -128,7 +133,6 @@ class AppHeader extends StatelessWidget implements PreferredSizeWidget {
               ],
             ),
           ),
-          // Navegación para pantallas medianas.
           if (!isMobile && !wide) ...[
             const SizedBox(width: 40),
             Expanded(
@@ -202,6 +206,15 @@ class _NavButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return TextButton(
       onPressed: () {
+        if (item.route == '/cortes') {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => const CashRegisterHistoryScreen(),
+            ),
+          );
+          return;
+        }
         if (!selected) {
           Navigator.pushReplacementNamed(
             context,
@@ -211,9 +224,12 @@ class _NavButton extends StatelessWidget {
       },
       style: TextButton.styleFrom(
         padding: const EdgeInsets.symmetric(
-          horizontal: 10,
+          horizontal: 18,
+          vertical: 8,
         ),
         minimumSize: Size.zero,
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        alignment: Alignment.center,
       ),
       child: Text(
         item.label,
@@ -225,7 +241,6 @@ class _NavButton extends StatelessWidget {
     );
   }
 }
-
 class _UserMenu extends StatelessWidget {
   final String userName;
   final bool compact;
@@ -237,6 +252,7 @@ class _UserMenu extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    
     return PopupMenuButton<String>(
       offset: const Offset(0, 8),
       position: PopupMenuPosition.under,
@@ -256,12 +272,16 @@ class _UserMenu extends StatelessWidget {
             ),
           );
         }
-
-        if (value == 'logout') {
-          AuthService().logout();
-          Navigator.pushReplacementNamed(
+      if (value == 'logout') {
+          Navigator.push(
             context,
-            '/login',
+            MaterialPageRoute(
+              builder: (_) => const CloseCashRegisterScreen(
+                initialCash: 0,
+                totalSales: 0,
+                cashSales: 0,
+              ),
+            ),
           );
         }
       },
@@ -362,7 +382,8 @@ class AppDrawer extends StatelessWidget {
     }
     return navItems.where((item) {
       return item.route != '/usuarios' &&
-          item.route != '/sucursales';
+          item.route != '/sucursales' &&
+           item.route != '/cortes';
     }).toList();
   }
 
@@ -420,18 +441,19 @@ class AppDrawer extends StatelessWidget {
               height: 1,
             ),
             const SizedBox(height: 12),
+           
             for (final item in itemsVisibles)
               _DrawerItem(
                 item: item,
-                selected:
-                    item.route == currentRoute,
+                selected: item.route == currentRoute,
               ),
-          ],
-        ),
-      ),
-    );
-  }
-}
+
+                      ],
+                    ),
+                  ),
+                );
+              }
+            }
 
 class _DrawerItem extends StatelessWidget {
   final NavItem item;
@@ -447,14 +469,23 @@ class _DrawerItem extends StatelessWidget {
         ? kGreen
         : Colors.white;
     return InkWell(
-      onTap: () {
-        if (!selected) {
-          Navigator.pushReplacementNamed(
-            context,
-            item.route,
-          );
-        }
-      },
+     onTap: () {
+  if (item.route == '/cortes') {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const CashRegisterHistoryScreen(),
+      ),
+    );
+    return;
+  }
+  if (!selected) {
+    Navigator.pushReplacementNamed(
+      context,
+      item.route,
+    );
+  }
+},
       child: Container(
         height: 52,
         padding: const EdgeInsets.only(left: 20),

@@ -21,14 +21,16 @@ class StatusSwitch extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final mensajeEsActivo =
-        mensajeEstado?.contains('activado') == true;
+  final mensaje = mensajeEstado?.toLowerCase() ?? '';
+
+final mensajeEsActivo =
+    mensaje.contains('activado') &&
+    !mensaje.contains('desactivado');
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.end,
       mainAxisSize: MainAxisSize.min,
       children: [
-        // MENSAJE
         AnimatedOpacity(
           opacity: mostrandoMensajeEstado ? 1.0 : 0.0,
           duration: const Duration(milliseconds: 250),
@@ -76,7 +78,6 @@ class StatusSwitch extends StatelessWidget {
           ),
         ),
 
-        // BOTÓN DE ESTADO
         Container(
           padding: const EdgeInsets.symmetric(
             horizontal: 14,

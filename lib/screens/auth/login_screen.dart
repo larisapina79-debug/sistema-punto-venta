@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../services/auth_service.dart';
+import '../../services/cash_closure_service.dart';
 
 const Color _bg = Color(0xFF1A1A1A);
 const Color _green = Color(0xFF0F6B1F);
@@ -50,19 +51,45 @@ class _LoginScreenState extends State<LoginScreen> {
         });
         return;
       }
-      Navigator.pushReplacementNamed(context, '/start-cash-register');
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _mensajeError = 'Ocurrió un error al iniciar sesión';
-      });
-    } finally {
-      if (mounted) {
-        setState(() {
-          _loading = false;
-        });
-      }
+      
+ final cajaAbierta =
+        await CashClosureService().getOpenCashRegister(
+      idBranch: user.idBranches.first.id,
+      idUser: user.idUser,
+    );
+
+    if (!mounted) return;
+
+    if (cajaAbierta != null && !cajaAbierta.statusClosing) {
+      // Si ya tiene caja abierta, regresar a ventas.
+      Navigator.pushNamedAndRemoveUntil(
+        context,
+        '/ventas',
+        (route) => false,
+      );
+    } else {
+      // Si no tiene caja abierta, iniciar una nueva.
+      Navigator.pushNamedAndRemoveUntil(
+        context,
+        '/start-cash-register',
+        (route) => false,
+      );
     }
+  } catch (e) {
+    if (!mounted) return;
+
+    setState(() {
+      _mensajeError =
+          'Ocurrió un error al iniciar sesión: '
+          '${e.toString().replaceFirst('Exception: ', '')}';
+    });
+  } finally {
+    if (mounted) {
+      setState(() {
+        _loading = false;
+      });
+    }
+  }
   }
 
   Widget _title({
@@ -289,7 +316,7 @@ class _LoginScreenState extends State<LoginScreen> {
               foregroundColor: Colors.white,
               elevation: 0,
               shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(32),
+                borderRadius: BorderRadius.circular(12),
               ),
             ),
             child: _loading
