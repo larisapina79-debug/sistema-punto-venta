@@ -6,6 +6,7 @@ import 'screens/auth/login_screen.dart';
 import 'screens/users/users_screen.dart';
 import 'services/auth_service.dart';
 import 'screens/cash_closures/start_cash_register_screen.dart';
+import 'screens/branches/branch_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -25,13 +26,14 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       title: 'Punto de Venta',
       debugShowCheckedModeBanner: false,
-      initialRoute: Session.user == null ? '/login' : '/start-cash-register',
+      initialRoute: Session.user == null ? '/login' : '/login',
     routes: {
         for (final item in navItems)
           item.route: (_) =>
               PlaceholderScreen(title: item.label, route: item.route),
         '/login': (_) => const LoginScreen(),
         '/usuarios': (_) => const UsersScreen(),
+        '/sucursales': (_) => const BranchesScreen(),
         '/start-cash-register': (_) => const StartCashRegisterScreen(),
       },
     );

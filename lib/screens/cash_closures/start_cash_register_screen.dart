@@ -46,7 +46,7 @@ class _StartCashRegisterScreenState extends State<StartCashRegisterScreen> {
   @override
   void initState() {
     super.initState();
-
+    _checkOpenRegister();
     _timer = Timer.periodic(
       const Duration(seconds: 1),
       (_) {
@@ -64,6 +64,25 @@ class _StartCashRegisterScreenState extends State<StartCashRegisterScreen> {
     _amountController.dispose();
     _amountFocusNode.dispose();
     super.dispose();
+  }
+    Future<void> _checkOpenRegister() async {
+    final user = Session.user;
+    if (user == null || user.idBranches.isEmpty) return;
+    try {
+      final caja = await CashClosureService().getOpenCashRegister(
+        idBranch: user.idBranches.first.id,
+        idUser: user.idUser,
+      );
+      debugPrint('CHECK CAJA: id=${caja?.idClosure} '
+          'status=${caja?.statusClosing}');
+      if (!mounted) return;
+      if (caja != null && !caja.statusClosing) {
+        Navigator.pushReplacementNamed(context, '/ventas');
+      }
+    } catch (e, st) {
+      debugPrint('CHECK CAJA ERROR: $e');
+      debugPrintStack(stackTrace: st);
+    }
   }
 
   String _formatMoney(String value) {

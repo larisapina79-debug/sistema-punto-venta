@@ -54,6 +54,7 @@ class _CashRegisterHistoryScreenState
   final TextEditingController _searchController =
       TextEditingController();
   List<_ClosureView> _items = [];
+  List<String> _allBranches = []; 
   bool _loading = true;
   String? _error;
   String _search = '';
@@ -151,13 +152,12 @@ class _CashRegisterHistoryScreenState
       if (!mounted) return;
       setState(() {
         _items = items;
+         _allBranches = branchNames.values.toSet().toList()..sort();
         _loading = false;
         _page = 0;
-        if (_branch != null &&
-            !items.any((c) => c.branch == _branch)) {
-          _branch = null;
-        }
-      });
+          if (_branch != null && !_allBranches.contains(_branch)) {
+    _branch = null;
+      }});
     } catch (e, stackTrace) {
       debugPrint('Error al cargar el historial de caja: $e');
       debugPrintStack(stackTrace: stackTrace);
@@ -259,12 +259,7 @@ class _CashRegisterHistoryScreenState
         : const Color(0xFFF57C00);
   }
 
-  List<String> get _branches {
-    final branches =
-        _items.map((c) => c.branch).toSet().toList();
-    branches.sort();
-    return branches;
-  }
+ List<String> get _branches => _allBranches;
   List<_ClosureView> get _filtered {
     final query = _search.trim().toLowerCase();
     return _items.where((c) {
@@ -1029,6 +1024,7 @@ class _CashRegisterHistoryScreenState
     return Scaffold(
       backgroundColor: _kBackground,
       appBar: const AppHeader(currentRoute: '/cortes'),
+      drawer: const AppDrawer(currentRoute: '/cortes'),
       body: SafeArea(
         top: false,
         child: Center(

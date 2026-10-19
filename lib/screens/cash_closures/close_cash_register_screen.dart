@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import '../../models/cash_closure_model.dart';
 import '../../services/auth_service.dart';
 import '../../services/cash_closure_service.dart';
+import '../../widgets/app_header.dart';
 
 const Color _kGreen = Color(0xFF63B7C4);
 const Color _kGreenDark = Color(0xFF0F6B1F);
@@ -506,6 +507,8 @@ class _CloseCashRegisterScreenState extends State<CloseCashRegisterScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: _kBackground,
+      appBar: const AppHeader(currentRoute: '/cierre'),
+      drawer: const AppDrawer(currentRoute: '/cierre'),
       body: SafeArea(
         child: LayoutBuilder(
           builder: (context, constraints) {

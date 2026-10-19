@@ -447,13 +447,12 @@ class AppDrawer extends StatelessWidget {
                 item: item,
                 selected: item.route == currentRoute,
               ),
-
-                      ],
-                    ),
-                  ),
-                );
-              }
-            }
+          ],
+        ),
+      ),
+    );
+  }
+}
 
 class _DrawerItem extends StatelessWidget {
   final NavItem item;

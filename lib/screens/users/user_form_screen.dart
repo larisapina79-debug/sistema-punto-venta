@@ -267,15 +267,15 @@ bool _verPassword = false;
         vertical: 20,
       ),
       border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(32),
+        borderRadius: BorderRadius.circular(10),
         borderSide: const BorderSide(color: Colors.black26),
       ),
       enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(32),
+        borderRadius: BorderRadius.circular(10),
         borderSide: const BorderSide(color: Colors.black26),
       ),
       focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(32),
+        borderRadius: BorderRadius.circular(10),
         borderSide: const BorderSide(
           color: _green,
           width: 1.6,
