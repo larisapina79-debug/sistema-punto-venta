@@ -26,9 +26,16 @@ class _StartCashRegisterScreenState extends State<StartCashRegisterScreen> {
   bool _saving = false;
   bool _updatingController = false;
 
+  List<Map<String, String>> _assignedBranches = [];
+  String? _selectedBranchId;
+  bool _loadingBranches = true;
+
   final TextEditingController _amountController = TextEditingController();
   final FocusNode _amountFocusNode = FocusNode();
-
+  bool get _canSelectBranch {
+    final role = Session.user?.roleUser.trim().toLowerCase();
+    return role == 'administrador' || role == 'supervisor';
+  }
   String get _dateText {
     final day = _now.day.toString().padLeft(2, '0');
     final month = _now.month.toString().padLeft(2, '0');
@@ -46,7 +53,7 @@ class _StartCashRegisterScreenState extends State<StartCashRegisterScreen> {
   @override
   void initState() {
     super.initState();
-    _checkOpenRegister();
+    _loadAssignedBranches();
     _timer = Timer.periodic(
       const Duration(seconds: 1),
       (_) {
@@ -65,16 +72,174 @@ class _StartCashRegisterScreenState extends State<StartCashRegisterScreen> {
     _amountFocusNode.dispose();
     super.dispose();
   }
+   Future<void> _loadAssignedBranches() async {
+    final user = Session.user;
+
+    if (user == null || user.idBranches.isEmpty) {
+      if (!mounted) return;
+
+      setState(() {
+        _assignedBranches = [];
+        _selectedBranchId = null;
+        _loadingBranches = false;
+      });
+
+      return;
+    }
+
+    try {
+      final branches = <Map<String, String>>[];
+
+      for (final reference in user.idBranches) {
+        final document = await reference.get();
+
+        if (!document.exists) continue;
+
+        final data = document.data() as Map<String, dynamic>;
+
+        if (data['branch_status'] != true) continue;
+
+        branches.add({
+          'id': document.id,
+          'name': (data['branch_name'] ?? 'Sucursal sin nombre').toString(),
+        });
+      }
+
+      if (!mounted) return;
+
+      setState(() {
+        _assignedBranches = branches;
+        _selectedBranchId =
+            branches.isNotEmpty ? branches.first['id'] : null;
+        _loadingBranches = false;
+      });
+
+      if (_selectedBranchId != null) {
+        await _checkOpenRegister();
+      }
+    } catch (e, st) {
+      debugPrint('ERROR AL CARGAR SUCURSALES: $e');
+      debugPrintStack(stackTrace: st);
+
+      if (!mounted) return;
+
+      setState(() {
+        _assignedBranches = [];
+        _selectedBranchId = null;
+        _loadingBranches = false;
+      });
+
+      _showTopAlert(
+        message: 'No fue posible cargar las sucursales asignadas.',
+        icon: Icons.error_outline_rounded,
+      );
+    }
+  }
+
+  Future<void> _onBranchChanged(String? branchId) async {
+    if (branchId == null ||
+        branchId == _selectedBranchId ||
+        _saving) {
+      return;
+    }
+
+    setState(() {
+      _selectedBranchId = branchId;
+    });
+
+    await _checkOpenRegister();
+  }
+
+  Widget _branchField() {
+    if (_loadingBranches) {
+      return Container(
+        height: 52,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: _fieldBackground,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: _fieldBorder),
+        ),
+        child: const SizedBox(
+          width: 22,
+          height: 22,
+          child: CircularProgressIndicator(
+            strokeWidth: 2,
+            color: _green,
+          ),
+        ),
+      );
+    }
+
+    if (_assignedBranches.isEmpty) {
+      return _readOnlyField(
+        icon: Icons.store_outlined,
+        text: 'No tienes sucursales activas asignadas',
+        centered: false,
+      );
+    }
+
+    return Container(
+      height: 52,
+      padding: const EdgeInsets.symmetric(horizontal: 14),
+      decoration: BoxDecoration(
+        color: _fieldBackground,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: _fieldBorder),
+      ),
+      child: Row(
+        children: [
+          const Icon(
+            Icons.store_outlined,
+            color: _greenLight,
+            size: 22,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: DropdownButtonHideUnderline(
+              child: DropdownButton<String>(
+                value: _selectedBranchId,
+                isExpanded: true,
+                icon: const Icon(
+                  Icons.keyboard_arrow_down_rounded,
+                  color: _greenLight,
+                ),
+                hint: const Text('Selecciona una sucursal'),
+                items: _assignedBranches.map((branch) {
+                  return DropdownMenuItem<String>(
+                    value: branch['id'],
+                    child: Text(
+                      branch['name']!,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: _black,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  );
+                }).toList(),
+                onChanged: _saving ? null : _onBranchChanged,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
     Future<void> _checkOpenRegister() async {
     final user = Session.user;
-    if (user == null || user.idBranches.isEmpty) return;
+    final branchId = _selectedBranchId;
+    if (user == null || branchId == null) return;
     try {
       final caja = await CashClosureService().getOpenCashRegister(
-        idBranch: user.idBranches.first.id,
+        idBranch: branchId,
         idUser: user.idUser,
       );
-      debugPrint('CHECK CAJA: id=${caja?.idClosure} '
-          'status=${caja?.statusClosing}');
+      debugPrint( 'CHECK CAJA: sucursal=$branchId '
+        'id=${caja?.idClosure} '
+        'status=${caja?.statusClosing}',);
       if (!mounted) return;
       if (caja != null && !caja.statusClosing) {
         Navigator.pushReplacementNamed(context, '/ventas');
@@ -727,21 +892,31 @@ class _StartCashRegisterScreenState extends State<StartCashRegisterScreen> {
       );
       return;
     }
-    if (user.idBranches.isEmpty) {
+      if (_loadingBranches) {
       _showTopAlert(
-        message: 'No tienes una sucursal asignada.',
+        message: 'Espera mientras se cargan las sucursales.',
+        icon: Icons.hourglass_empty_rounded,
+      );
+      return;
+    }
+    final branchId = _selectedBranchId;
+    if (branchId == null ||
+        !_assignedBranches.any((branch) => branch['id'] == branchId)) {
+      _showTopAlert(
+        message: 'Selecciona una sucursal activa.',
         icon: Icons.store_outlined,
       );
       return;
     }
     final confirmed = await _showConfirmDialog();
     if (!confirmed || !mounted) return;
+
     setState(() {
       _saving = true;
     });
     try {
       await CashClosureService().openCashRegister(
-        idBranch: user.idBranches.first.id,
+        idBranch: branchId,
         idUser: user.idUser,
         initialCash: amount,
         openingDate: DateTime.now(),
@@ -765,7 +940,7 @@ class _StartCashRegisterScreenState extends State<StartCashRegisterScreen> {
       }
     }
   }
-
+     
   Widget _startButton() {
     return SizedBox(
       width: double.infinity,
@@ -978,6 +1153,19 @@ class _StartCashRegisterScreenState extends State<StartCashRegisterScreen> {
                     ),
                   ),
                   SizedBox(height: mobile ? 14 : 18),
+                  if (_canSelectBranch) ...[
+                    const Text(
+                      'Sucursal',
+                      style: TextStyle(
+                        color: _black,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 7),
+                    _branchField(),
+                    const SizedBox(height: 12),
+                  ],
                   const Text(
                     'Fecha de inicio',
                     style: TextStyle(
