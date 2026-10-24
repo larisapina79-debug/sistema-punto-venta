@@ -7,6 +7,7 @@ import 'screens/users/users_screen.dart';
 import 'services/auth_service.dart';
 import 'screens/cash_closures/start_cash_register_screen.dart';
 import 'screens/branches/branch_screen.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -26,6 +27,16 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       title: 'Punto de Venta',
       debugShowCheckedModeBanner: false,
+      locale: const Locale('es', 'MX'),
+      supportedLocales: const [
+        Locale('es', 'MX'),
+        Locale('es'),
+      ],
+      localizationsDelegates: const [
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+],
       initialRoute: Session.user == null ? '/login' : '/login',
     routes: {
         for (final item in navItems)

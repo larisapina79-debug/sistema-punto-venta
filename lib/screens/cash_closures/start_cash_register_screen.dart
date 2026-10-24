@@ -1,46 +1,152 @@
 import 'dart:async';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../services/auth_service.dart';
 import '../../services/cash_closure_service.dart';
+
+const Color _kGreen = Color.fromARGB(255, 99, 183, 196);
+const Color _green = Color.fromARGB(255, 99, 183, 196);
+const Color _greenLight = Color.fromARGB(255, 99, 183, 196);
+const Color _black = Color(0xFF111111);
+const Color _grayText = Color(0xFF666666);
+const Color _fieldBorder = Color(0xFFE0E0E0);
+const Color _fieldBackground = Color(0xFFF8F8F8);
+const double _contentMaxWidth = 520;
+const Color _kCancel = Color(0xFFFF5722);
+
+ButtonStyle _tealButtonStyle({
+  double radius = 12,
+  EdgeInsetsGeometry? padding,
+  Color disabled = const Color(0xFFECF6F8),
+}) {
+  return ElevatedButton.styleFrom(
+    foregroundColor: Colors.black,
+    elevation: 0,
+    padding: padding,
+    splashFactory: NoSplash.splashFactory,
+    side: const BorderSide(color: _kGreen, width: 1.5),
+    shape: RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(radius),
+    ),
+  ).copyWith(
+    backgroundColor: WidgetStateProperty.resolveWith((states) {
+      if (states.contains(WidgetState.disabled)) return disabled;
+      if (states.contains(WidgetState.pressed) ||
+          states.contains(WidgetState.hovered)) {
+        return const Color(0xFFD9E2E4);
+      }
+      return const Color(0xFFECF6F8);
+    }),
+    overlayColor: WidgetStateProperty.all(Colors.transparent),
+  );
+}
 class StartCashRegisterScreen extends StatefulWidget {
   const StartCashRegisterScreen({super.key});
-
   @override
   State<StartCashRegisterScreen> createState() =>
       _StartCashRegisterScreenState();
 }
-
-class _StartCashRegisterScreenState extends State<StartCashRegisterScreen> {
-  static const Color _green = Color(0xFF0F6B1F);
-  static const Color _greenLight = Color(0xFF63B7C4);
-  static const Color _black = Color(0xFF111111);
-  static const Color _grayText = Color(0xFF555555);
-  static const Color _fieldBorder = Color(0xFFBDBDBD);
-  static const Color _fieldBackground = Color(0xFFF8F8F8);
-  static const Color _white = Colors.white;
-
+class _StartCashRegisterScreenState
+    extends State<StartCashRegisterScreen> {
   Timer? _timer;
   DateTime _now = DateTime.now();
-  String _amount = '';
   bool _saving = false;
-  bool _updatingController = false;
-
-  List<Map<String, String>> _assignedBranches = [];
-  String? _selectedBranchId;
-  bool _loadingBranches = true;
-
-  final TextEditingController _amountController = TextEditingController();
+  bool _loadingBranch = true;
+  bool _countMode = true;
+  String? _branchId;
+  double? _expectedCash;
+  final TextEditingController _commentController =
+      TextEditingController();
+  OverlayEntry? _alertEntry;
+  Timer? _alertTimer;
+  final TextEditingController _amountController =
+      TextEditingController();
   final FocusNode _amountFocusNode = FocusNode();
-  bool get _canSelectBranch {
-    final role = Session.user?.roleUser.trim().toLowerCase();
-    return role == 'administrador' || role == 'supervisor';
+  final List<int> _billDenoms = [1000, 500, 200, 100, 50, 20];
+  final List<double> _coinDenoms = [10, 5, 2, 1, 0.5];
+  final Map<double, int> _counts = {};
+  final Map<double, TextEditingController> _countControllers = {};
+  double get _countTotal {
+    double total = 0;
+    for (final denomination in _billDenoms) {
+      total += denomination *
+          (_counts[denomination.toDouble()] ?? 0);
+    }
+    for (final denomination in _coinDenoms) {
+      total += denomination * (_counts[denomination] ?? 0);
+    }
+    return total;
   }
+  double get _manualAmount {
+    final value = _amountController.text
+        .replaceAll(',', '')
+        .replaceAll('\$', '')
+        .trim();
+    return double.tryParse(value) ?? 0;
+  }
+  double get _initialAmount =>
+      _countMode ? _countTotal : _manualAmount;
+  double get _difference => _initialAmount - (_expectedCash ?? 0);
+  bool get _hasExpected => _expectedCash != null;
+  bool get _isBalanced =>
+      _hasExpected && _difference.abs() < 0.005;
+  bool get _isShort =>
+      _hasExpected && _difference < -0.005;
+
+  @override
+  void initState() {
+    super.initState();
+    for (final denomination in _billDenoms) {
+      final key = denomination.toDouble();
+      _counts[key] = 0;
+      _countControllers[key] = TextEditingController(text: '0');
+    }
+    for (final denomination in _coinDenoms) {
+      _counts[denomination] = 0;
+      _countControllers[denomination] =
+          TextEditingController(text: '0');
+    }
+    _loadAssignedBranch();
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) {
+        setState(() {
+          _now = DateTime.now();
+        });
+      }
+    });
+  }
+  
+  @override
+  void dispose() {
+    _timer?.cancel();
+    _alertTimer?.cancel();
+    _alertEntry?.remove();
+    _amountController.dispose();
+    _amountFocusNode.dispose();
+    _commentController.dispose();
+    for (final controller in _countControllers.values) {
+      controller.dispose();
+    }
+    super.dispose();
+  }
+
   String get _dateText {
-    final day = _now.day.toString().padLeft(2, '0');
-    final month = _now.month.toString().padLeft(2, '0');
-    final year = _now.year.toString();
-    return '$day/$month/$year';
+    const months = [
+      'enero',
+      'febrero',
+      'marzo',
+      'abril',
+      'mayo',
+      'junio',
+      'julio',
+      'agosto',
+      'septiembre',
+      'octubre',
+      'noviembre',
+      'diciembre',
+    ];
+    return '${_now.day} de ${months[_now.month - 1]} de ${_now.year}';
   }
 
   String get _timeText {
@@ -50,597 +156,860 @@ class _StartCashRegisterScreenState extends State<StartCashRegisterScreen> {
     return '$hour:$minute:$second';
   }
 
-  @override
-  void initState() {
-    super.initState();
-    _loadAssignedBranches();
-    _timer = Timer.periodic(
-      const Duration(seconds: 1),
-      (_) {
+  String _formatMoney(double value) {
+    final parts = value.toStringAsFixed(2).split('.');
+    final integerPart = parts[0];
+    final buffer = StringBuffer();
+    for (int i = 0; i < integerPart.length; i++) {
+      buffer.write(integerPart[i]);
+      final remaining = integerPart.length - i - 1;
+      if (remaining > 0 && remaining % 3 == 0) {
+        buffer.write(',');
+      }
+    }
+    return '\$${buffer.toString()}.${parts[1]}';
+  }
+
+  Future<void> _loadAssignedBranch() async {
+    try {
+      final user = Session.user;
+      if (user == null) {
+        if (mounted) {
+          Navigator.pushReplacementNamed(context, '/login');
+        }
+        return;
+      }
+      if (user.idBranches.isEmpty) {
         if (!mounted) return;
         setState(() {
-          _now = DateTime.now();
+          _loadingBranch = false;
         });
-      },
-    );
-  }
-
-  @override
-  void dispose() {
-    _timer?.cancel();
-    _amountController.dispose();
-    _amountFocusNode.dispose();
-    super.dispose();
-  }
-   Future<void> _loadAssignedBranches() async {
-    final user = Session.user;
-
-    if (user == null || user.idBranches.isEmpty) {
-      if (!mounted) return;
-
-      setState(() {
-        _assignedBranches = [];
-        _selectedBranchId = null;
-        _loadingBranches = false;
-      });
-
-      return;
-    }
-
-    try {
-      final branches = <Map<String, String>>[];
-
-      for (final reference in user.idBranches) {
-        final document = await reference.get();
-
-        if (!document.exists) continue;
-
-        final data = document.data() as Map<String, dynamic>;
-
-        if (data['branch_status'] != true) continue;
-
-        branches.add({
-          'id': document.id,
-          'name': (data['branch_name'] ?? 'Sucursal sin nombre').toString(),
-        });
+        _showAlert(
+          'Sin sucursal asignada',
+          'Tu usuario no tiene una sucursal asignada.',
+        );
+        return;
       }
-
-      if (!mounted) return;
-
-      setState(() {
-        _assignedBranches = branches;
-        _selectedBranchId =
-            branches.isNotEmpty ? branches.first['id'] : null;
-        _loadingBranches = false;
-      });
-
-      if (_selectedBranchId != null) {
-        await _checkOpenRegister();
-      }
-    } catch (e, st) {
-      debugPrint('ERROR AL CARGAR SUCURSALES: $e');
-      debugPrintStack(stackTrace: st);
-
-      if (!mounted) return;
-
-      setState(() {
-        _assignedBranches = [];
-        _selectedBranchId = null;
-        _loadingBranches = false;
-      });
-
-      _showTopAlert(
-        message: 'No fue posible cargar las sucursales asignadas.',
-        icon: Icons.error_outline_rounded,
-      );
-    }
-  }
-
-  Future<void> _onBranchChanged(String? branchId) async {
-    if (branchId == null ||
-        branchId == _selectedBranchId ||
-        _saving) {
-      return;
-    }
-
-    setState(() {
-      _selectedBranchId = branchId;
-    });
-
-    await _checkOpenRegister();
-  }
-
-  Widget _branchField() {
-    if (_loadingBranches) {
-      return Container(
-        height: 52,
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: _fieldBackground,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: _fieldBorder),
-        ),
-        child: const SizedBox(
-          width: 22,
-          height: 22,
-          child: CircularProgressIndicator(
-            strokeWidth: 2,
-            color: _green,
-          ),
-        ),
-      );
-    }
-
-    if (_assignedBranches.isEmpty) {
-      return _readOnlyField(
-        icon: Icons.store_outlined,
-        text: 'No tienes sucursales activas asignadas',
-        centered: false,
-      );
-    }
-
-    return Container(
-      height: 52,
-      padding: const EdgeInsets.symmetric(horizontal: 14),
-      decoration: BoxDecoration(
-        color: _fieldBackground,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: _fieldBorder),
-      ),
-      child: Row(
-        children: [
-          const Icon(
-            Icons.store_outlined,
-            color: _greenLight,
-            size: 22,
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: DropdownButtonHideUnderline(
-              child: DropdownButton<String>(
-                value: _selectedBranchId,
-                isExpanded: true,
-                icon: const Icon(
-                  Icons.keyboard_arrow_down_rounded,
-                  color: _greenLight,
-                ),
-                hint: const Text('Selecciona una sucursal'),
-                items: _assignedBranches.map((branch) {
-                  return DropdownMenuItem<String>(
-                    value: branch['id'],
-                    child: Text(
-                      branch['name']!,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: _black,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  );
-                }).toList(),
-                onChanged: _saving ? null : _onBranchChanged,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-    Future<void> _checkOpenRegister() async {
-    final user = Session.user;
-    final branchId = _selectedBranchId;
-    if (user == null || branchId == null) return;
-    try {
-      final caja = await CashClosureService().getOpenCashRegister(
+      final branchId = user.idBranches.first.id;
+      final openRegister =
+          await CashClosureService().getOpenCashRegister(
         idBranch: branchId,
         idUser: user.idUser,
       );
-      debugPrint( 'CHECK CAJA: sucursal=$branchId '
-        'id=${caja?.idClosure} '
-        'status=${caja?.statusClosing}',);
       if (!mounted) return;
-      if (caja != null && !caja.statusClosing) {
+      if (openRegister != null) {
         Navigator.pushReplacementNamed(context, '/ventas');
+        return;
       }
-    } catch (e, st) {
-      debugPrint('CHECK CAJA ERROR: $e');
-      debugPrintStack(stackTrace: st);
-    }
-  }
-
-  String _formatMoney(String value) {
-    if (value.isEmpty) return '0.00';
-    final cleanValue = value.replaceAll(',', '');
-    final number = double.tryParse(cleanValue);
-    if (number == null) return '0.00';
-    final fixed = number.toStringAsFixed(2);
-    final parts = fixed.split('.');
-    final integerPart = parts[0];
-    final decimalPart = parts[1];
-    final formattedInteger = integerPart.replaceAllMapped(
-      RegExp(r'\B(?=(\d{3})+(?!\d))'),
-      (match) => ',',
-    );
-    return '$formattedInteger.$decimalPart';
-  }
-
-  String get _amountText => _formatMoney(_amount);
-  String _formatInputValue(String value) {
-    final cleanValue = value.replaceAll(',', '');
-    if (cleanValue.isEmpty) return '';
-    final parts = cleanValue.split('.');
-    String integerPart = parts[0];
-    final decimalPart = parts.length > 1 ? parts[1] : null;
-    if (integerPart.isEmpty) {
-      integerPart = '0';
-    }
-
-    final formattedInteger = integerPart.replaceAllMapped(
-      RegExp(r'\B(?=(\d{3})+(?!\d))'),
-      (match) => ',',
-    );
-    if (decimalPart != null) {
-      return '$formattedInteger.$decimalPart';
-    }
-    return formattedInteger;
-  }
-
-  void _restoreController() {
-    final formatted = _formatInputValue(_amount);
-    _updatingController = true;
-    _amountController.value = TextEditingValue(
-      text: formatted,
-      selection: TextSelection.collapsed(offset: formatted.length),
-    );
-    _updatingController = false;
-  }
-
-  void _updateAmount(
-    String value, {
-    int? cursorPosition,
-  }) {
-    final cleanValue = value.replaceAll(',', '');
-    if (cleanValue.isEmpty) {
+      double? expected;
+      try {
+        final doc = await FirebaseFirestore.instance
+            .collection('branch_initial_cash')
+            .doc(branchId)
+            .get();
+        final raw = doc.data()?['initial_cash'];
+        if (raw is num) {
+          expected = raw.toDouble();
+        } else if (raw is String) {
+          expected = double.tryParse(
+            raw.replaceAll(',', '').trim(),
+          );
+        }
+      } catch (_) {
+      }
+      if (!mounted) return;
       setState(() {
-        _amount = '';
+        _branchId = branchId;
+        _expectedCash = expected;
+        _loadingBranch = false;
       });
-      if (_amountController.text.isNotEmpty) {
-        _updatingController = true;
-        _amountController.value = const TextEditingValue(
-          text: '',
-          selection: TextSelection.collapsed(offset: 0),
-        );
-        _updatingController = false;
-      }
-      return;
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loadingBranch = false;
+      });
+      _showAlert(
+        'Error',
+        'No fue posible verificar el estado de la caja.',
+      );
     }
-    final valid = RegExp(r'^\d*\.?\d{0,2}$');
-    if (!valid.hasMatch(cleanValue)) {
-      _restoreController();
-      return;
-    }
-    final integerPart = cleanValue.split('.').first;
-    if (integerPart.length > 9) {
-      _restoreController();
-      return;
-    }
-    setState(() {
-      _amount = cleanValue;
-    });
-    final rawCursor = cursorPosition ?? cleanValue.length;
-    final cursorBefore = cleanValue.substring(
-      0,
-      rawCursor.clamp(0, cleanValue.length),
-    );
-    final formattedBeforeCursor = _formatInputValue(cursorBefore);
-    final formatted = _formatInputValue(cleanValue);
-    final newCursor = formattedBeforeCursor.length;
-    _updatingController = true;
-    _amountController.value = TextEditingValue(
-      text: formatted,
-      selection: TextSelection.collapsed(
-        offset: newCursor.clamp(0, formatted.length),
-      ),
-    );
-    _updatingController = false;
   }
 
-  void _onAmountChanged(String value) {
-    if (_updatingController) return;
-    final cleanValue = value.replaceAll(',', '');
-    final cursor = _amountController.selection.baseOffset;
-    int rawCursor = cursor;
-    if (cursor > 0) {
-      final beforeCursor = value.substring(
-        0,
-        cursor.clamp(0, value.length),
-      );
-      rawCursor = beforeCursor.replaceAll(',', '').length;
-    }
-    _updateAmount(
-      cleanValue,
-      cursorPosition: rawCursor,
-    );
-  }
-
-  void _onKey(String value) {
-    final current = _amount;
-    final controllerValue = _amountController.value;
-    int cursor = controllerValue.selection.baseOffset;
-    final displayText = controllerValue.text;
-    if (cursor >= 0 && cursor <= displayText.length) {
-      cursor = displayText.substring(0, cursor).replaceAll(',', '').length;
-    } else {
-      cursor = current.length;
-    }
-    final selectionEnd = cursor;
-    if (value == '⌫') {
-      if (current.isEmpty || cursor == 0) return;
-      final newValue = current.replaceRange(cursor - 1, cursor, '');
-      _updateAmount(
-        newValue,
-        cursorPosition: cursor - 1,
-      );
-      return;
-    }
-    if (value == '.') {
-      if (current.contains('.')) return;
-      final newValue = current.replaceRange(cursor, selectionEnd, '.');
-      _updateAmount(
-        newValue,
-        cursorPosition: cursor + 1,
-      );
-      return;
-    }
-    if (!RegExp(r'^\d$').hasMatch(value)) return;
-    final newValue = current.replaceRange(cursor, selectionEnd, value);
-    final valid = RegExp(r'^\d*\.?\d{0,2}$');
-    if (!valid.hasMatch(newValue)) return;
-    final integerPart = newValue.split('.').first;
-    if (integerPart.length > 9) return;
-    if (newValue.contains('.')) {
-      final parts = newValue.split('.');
-      final decimals = parts.length > 1 ? parts[1] : '';
-      if (decimals.length > 2) return;
-    }
-    _updateAmount(
-      newValue,
-      cursorPosition: cursor + 1,
-    );
-  }
-  void _showTopAlert({
-    required String message,
-    IconData? icon,
-    bool success = false,
-  }) {
-    final overlay = Overlay.of(context);
-    late OverlayEntry overlayEntry;
-    final bgColor =
-        success ? const Color(0xFFE8F5E9) : const Color(0xFFFDECEA);
-    final borderColor =
-        success ? const Color(0xFFA5D6A7) : const Color(0xFFF5B5B0);
-    final contentColor =
-        success ? const Color(0xFF1B5E20) : const Color(0xFFB3261E);
-    final alertIcon =
-        icon ?? (success ? Icons.check_circle : Icons.error);
-
-    overlayEntry = OverlayEntry(
-      builder: (context) {
-        return Positioned(
-          top: 18,
-          left: 20,
-          right: 20,
+  void _showTopAlert(String message, {bool error = true}) {
+    _alertTimer?.cancel();
+    _alertEntry?.remove();
+    _alertEntry = OverlayEntry(
+      builder: (context) => Positioned(
+        top: 12,
+        left: 16,
+        right: 16,
+        child: Material(
+          color: Colors.transparent,
           child: SafeArea(
             child: Center(
-              child: TweenAnimationBuilder<double>(
-                duration: const Duration(milliseconds: 250),
-                curve: Curves.easeOut,
-                tween: Tween(begin: -20, end: 0),
-                builder: (context, value, child) {
-                  return Transform.translate(
-                    offset: Offset(0, value),
-                    child: child,
-                  );
-                },
-                child: Material(
-                  color: Colors.transparent,
-                  child: Container(
-                    constraints: const BoxConstraints(maxWidth: 420),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 18,
-                      vertical: 14,
+              child: Container(
+                constraints: const BoxConstraints(maxWidth: 480),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 18,
+                  vertical: 14,
+                ),
+                decoration: BoxDecoration(
+                  color: error ? const Color(0xFFB3261E) : _green,
+                  borderRadius: BorderRadius.circular(12),
+                  boxShadow: const [
+                    BoxShadow(
+                      color: Color(0x26000000),
+                      blurRadius: 12,
+                      offset: Offset(0, 4),
                     ),
-                    decoration: BoxDecoration(
-                      color: bgColor,
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(color: borderColor),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(alertIcon, color: contentColor, size: 22),
-                        const SizedBox(width: 12),
-                        Flexible(
-                          child: Text(
-                            message,
-                            style: TextStyle(
-                              color: contentColor,
-                              fontSize: 14,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
+                  ],
+                ),
+                child: Text(
+                  message,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
               ),
             ),
           ),
-        );
-      },
+        ),
+      ),
     );
-    overlay.insert(overlayEntry);
-
-    Future.delayed(const Duration(seconds: 2), () {
-      if (overlayEntry.mounted) {
-        overlayEntry.remove();
-      }
+    Overlay.of(context).insert(_alertEntry!);
+    _alertTimer = Timer(const Duration(seconds: 3), () {
+      _alertEntry?.remove();
+      _alertEntry = null;
     });
   }
 
-  Widget _readOnlyField({
-    required IconData icon,
-    required String text,
-    bool centered = true,
-  }) {
-    return Container(
-      height: 52,
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      decoration: BoxDecoration(
-        color: _fieldBackground,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: _fieldBorder),
-      ),
-      child: Row(
-        children: [
-          Icon(icon, color: _greenLight, size: 22),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              text,
-              textAlign: centered ? TextAlign.center : TextAlign.left,
-              style: const TextStyle(
-                color: _black,
-                fontSize: 15,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _amountField() {
-    final focused = _amountFocusNode.hasFocus;
-    return Container(
-      height: 58,
-      decoration: BoxDecoration(
-        color: _fieldBackground,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: focused ? _green : _fieldBorder,
-          width: focused ? 1.5 : 1,
+  Future<void> _showAlert(String title, String message) async {
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: Colors.white,
+        surfaceTintColor: Colors.white,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(18),
         ),
-      ),
-      child: Row(
-        children: [
-          const SizedBox(width: 16),
-          const Text(
-            '\$',
-            style: TextStyle(
-              color: _greenLight,
-              fontSize: 22,
-              fontWeight: FontWeight.bold,
-            ),
+        title: Text(
+          title,
+          style: const TextStyle(
+            color: _black,
+            fontWeight: FontWeight.bold,
           ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: TextField(
-              controller: _amountController,
-              focusNode: _amountFocusNode,
-              keyboardType: const TextInputType.numberWithOptions(
-                decimal: true,
-              ),
-              onChanged: _onAmountChanged,
-              enableInteractiveSelection: false,
-              inputFormatters: [
-                FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
-              ],
-              style: const TextStyle(
+        ),
+        content: Text(
+          message,
+          style: const TextStyle(
+            color: _grayText,
+            height: 1.4,
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text(
+              'Aceptar',
+              style: TextStyle(
                 color: _black,
-                fontSize: 19,
                 fontWeight: FontWeight.w600,
               ),
-              decoration: const InputDecoration(
-                border: InputBorder.none,
-                hintText: 'Ingresa el efectivo',
-                hintStyle: TextStyle(
-                  color: _grayText,
-                  fontSize: 15,
-                ),
-                contentPadding: EdgeInsets.zero,
-              ),
             ),
           ),
-          if (_amount.isNotEmpty)
-            GestureDetector(
-              onTap: () {
-                _updateAmount('');
-                _amountFocusNode.requestFocus();
-              },
-              child: const Padding(
-                padding: EdgeInsets.only(right: 15),
-                child: Icon(
-                  Icons.close_rounded,
-                  color: _greenLight,
-                  size: 20,
-                ),
-              ),
-            ),
         ],
       ),
     );
   }
 
-  Widget _keyButton(String value) {
-    final isBackspace = value == '⌫';
-    final isMobile = MediaQuery.of(context).size.width < 800;
-    return Expanded(
-      child: Padding(
-        padding: const EdgeInsets.all(4),
-        child: Material(
-          color: Colors.transparent,
-          child: InkWell(
-            canRequestFocus: false,
-            borderRadius: BorderRadius.circular(12),
-            onTap: () {
-              final hadFocus = _amountFocusNode.hasFocus;
-              final selection = _amountController.selection;
-              if (!hadFocus || !selection.isValid) {
-                _amountController.selection = TextSelection.collapsed(
-                  offset: _amountController.text.length,
-                );
-              }
-              _amountFocusNode.requestFocus();
-              _onKey(value);
-            },
-            child: Container(
-              height: isMobile ? 46 : 58,
-              decoration: BoxDecoration(
-                color: Colors.grey.shade100,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.grey.shade300),
+  Future<bool> _showConfirmDialog() async {
+  final result = await showDialog<bool>(
+    context: context,
+    barrierDismissible: false,
+    builder: (dialogContext) => Dialog(
+      backgroundColor: Colors.white,
+      surfaceTintColor: Colors.white,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 400),
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Image.asset(
+                'assets/logo.png',
+                height: 58,
+                errorBuilder: (context, error, stackTrace) =>
+                    const SizedBox.shrink(),
               ),
-              child: Center(
-                child: isBackspace
-                    ? const Icon(
-                        Icons.backspace_outlined,
-                        color: _greenLight,
-                        size: 23,
-                      )
-                    : Text(
-                        value,
-                        style: const TextStyle(
-                          color: _black,
-                          fontSize: 20,
-                          fontWeight: FontWeight.w600,
+              const SizedBox(height: 18),
+              const Text(
+                '¿Iniciar caja?',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: _black,
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Verifica los datos antes de continuar.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: _grayText,
+                  fontSize: 14,
+                ),
+              ),
+              const SizedBox(height: 22),
+              _dialogRow('Fecha', _dateText),
+              const SizedBox(height: 12),
+              _dialogRow('Hora', _timeText),
+              const SizedBox(height: 12),
+              _dialogRow(
+                'Importe inicial',
+                _formatMoney(_initialAmount),
+                highlight: true,
+              ),
+              const SizedBox(height: 24),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () =>
+                          Navigator.pop(dialogContext, false),
+                      style: ButtonStyle(
+                        foregroundColor:
+                            const WidgetStatePropertyAll(_kCancel),
+                        overlayColor: const WidgetStatePropertyAll(
+                          Colors.transparent,
+                        ),
+                        backgroundColor:
+                            WidgetStateProperty.resolveWith((states) {
+                          if (states.contains(WidgetState.pressed) ||
+                              states.contains(WidgetState.hovered) ||
+                              states.contains(WidgetState.focused)) {
+                            return _kCancel.withValues(alpha: 0.12);
+                          }
+                          return Colors.white;
+                        }),
+                        side: WidgetStateProperty.resolveWith((states) {
+                          final pressed =
+                              states.contains(WidgetState.pressed);
+                          return BorderSide(
+                            color: pressed
+                                ? _kCancel.withValues(alpha: 0.25)
+                                : _kCancel,
+                            width: 1.2,
+                          );
+                        }),
+                        padding: const WidgetStatePropertyAll(
+                          EdgeInsets.symmetric(vertical: 13),
+                        ),
+                        shape: WidgetStatePropertyAll(
+                          RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
                         ),
                       ),
+                      child: const Text(
+                        'Cancelar',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () =>
+                          Navigator.pop(dialogContext, true),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.black,
+                        backgroundColor: _kGreen.withValues(alpha: 0.12),
+                        side: const BorderSide(
+                          color: _kGreen,
+                          width: 1.5,
+                        ),
+                        padding: const EdgeInsets.symmetric(
+                          vertical: 13,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      child: const Text(
+                        'Confirmar',
+                        style: TextStyle(
+                          color: Colors.black,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
+  return result ?? false;
+}
+
+  Widget _dialogRow(
+    String label,
+    String value, {
+    bool highlight = false,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: highlight
+            ? const Color(0xFFEAF4EC)
+            : _fieldBackground,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              label,
+              style: const TextStyle(
+                color: _grayText,
+                fontSize: 13,
+              ),
+            ),
+          ),
+          Flexible(
+            child: Text(
+              value,
+              textAlign: TextAlign.end,
+              style: TextStyle(
+                color: highlight ? _green : _black,
+                fontSize: 14,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _setCount(double denomination, int value) {
+    final count = value.clamp(0, 99999);
+    setState(() {
+      _counts[denomination] = count;
+      _countControllers[denomination]!.text = count.toString();
+      _countControllers[denomination]!.selection =
+          TextSelection.collapsed(
+        offset: _countControllers[denomination]!.text.length,
+      );
+    });
+  }
+  void _changeCount(double denomination, int amount) {
+    final current = _counts[denomination] ?? 0;
+    _setCount(denomination, current + amount);
+  }
+  void _onCountTyped(double denomination, String value) {
+    setState(() {
+      _counts[denomination] =
+          (int.tryParse(value) ?? 0).clamp(0, 99999);
+    });
+  }
+
+  String _denomLabel(double denomination) {
+    if (denomination == denomination.roundToDouble()) {
+      final text = denomination.toInt().toString().replaceAllMapped(
+            RegExp(r'\B(?=(\d{3})+(?!\d))'),
+            (_) => ',',
+          );
+      return '\$$text';
+    }
+    return '\$${denomination.toStringAsFixed(2)}';
+  }
+
+  Widget _denomRow(double denomination, {required bool compact}) {
+    final count = _counts[denomination] ?? 0;
+    final btn = compact ? 28.0 : 36.0;
+    final controls = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _stepButton(
+          icon: Icons.remove_rounded,
+          size: btn,
+          onTap: count > 0
+              ? () => _changeCount(denomination, -1)
+              : null,
+        ),
+        SizedBox(
+          width: compact ? 26 : 36,
+          child: TextField(
+            controller: _countControllers[denomination],
+            keyboardType: TextInputType.number,
+            textAlign: TextAlign.center,
+            textAlignVertical: TextAlignVertical.center,
+            inputFormatters: [
+              FilteringTextInputFormatter.digitsOnly,
+              LengthLimitingTextInputFormatter(5),
+            ],
+            onTap: () {
+              final controller = _countControllers[denomination]!;
+              controller.selection = TextSelection(
+                baseOffset: 0,
+                extentOffset: controller.text.length,
+              );
+            },
+            onChanged: (value) =>
+                _onCountTyped(denomination, value),
+            style: TextStyle(
+              color: const Color(0xFF202522),
+              fontSize: compact ? 13 : 14,
+              fontWeight: FontWeight.w700,
+            ),
+            decoration: const InputDecoration(
+              isDense: true,
+              border: InputBorder.none,
+              enabledBorder: InputBorder.none,
+              focusedBorder: InputBorder.none,
+              contentPadding: EdgeInsets.only(bottom: 6),
+            ),
+          ),
+        ),
+        _stepButton(
+          icon: Icons.add_rounded,
+          size: btn,
+          onTap: () => _changeCount(denomination, 1),
+        ),
+      ],
+    );
+    final amountText = Text(
+      _formatMoney(denomination * count),
+      maxLines: 1,
+      style: TextStyle(
+        color: const Color(0xFF626B66),
+        fontSize: compact ? 9 : 10,
+        fontWeight: FontWeight.w500,
+      ),
+    );
+    return SizedBox(
+      height: compact ? 44 : 40,
+      child: Row(
+        children: [
+          SizedBox(
+            width: compact ? 46 : 58,
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    _denomLabel(denomination),
+                    maxLines: 1,
+                    style: const TextStyle(
+                      color: Color(0xFF202522),
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  if (compact) amountText,
+                ],
+              ),
+            ),
+          ),
+          Expanded(
+            child: Center(
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: controls,
+              ),
+            ),
+          ),
+          if (!compact) ...[
+            const SizedBox(width: 6),
+            SizedBox(
+              width: 54,
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerRight,
+                child: amountText,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _stepButton({
+    required IconData icon,
+    required VoidCallback? onTap,
+    double size = 36,
+  }) {
+    final isDisabled = onTap == null;
+    return SizedBox(
+      width: size,
+      height: size,
+      child: OutlinedButton(
+        onPressed: onTap,
+        style: OutlinedButton.styleFrom(
+          padding: EdgeInsets.zero,
+          minimumSize: Size(size, size),
+          maximumSize: Size(size, size),
+          foregroundColor:
+              isDisabled ? const Color(0xFFBFC6C2) : _green,
+          side: BorderSide(
+            color: isDisabled
+                ? const Color(0xFFE0E5E2)
+                : const Color(0xFFD5E2DA),
+          ),
+          backgroundColor: Colors.white,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(9),
+          ),
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        ),
+        child: Icon(icon, size: size < 36 ? 16 : 18),
+      ),
+    );
+  }
+
+  Widget _denomSection({
+    required String title,
+    required List<double> denominations,
+    required bool compact,
+  }) {
+    double subtotal = 0;
+    for (final denomination in denominations) {
+      subtotal += denomination * (_counts[denomination] ?? 0);
+    }
+    final rowHeight = compact ? 44.0 : 40.0;
+    final needsAlignmentSpace =
+        denominations.length < _billDenoms.length;
+    return Container(
+      width: double.infinity,
+      padding: EdgeInsets.fromLTRB(
+        compact ? 8 : 10,
+        10,
+        compact ? 8 : 10,
+        8,
+      ),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border.all(color: const Color(0xFFE3E8E5)),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            title.toUpperCase(),
+            style: const TextStyle(
+              color: _green,
+              fontSize: 11,
+              letterSpacing: 0.35,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 7),
+          for (int i = 0; i < denominations.length; i++) ...[
+            _denomRow(denominations[i], compact: compact),
+            if (i < denominations.length - 1)
+              const Divider(
+                height: 1,
+                thickness: 1,
+                color: Color(0xFFF0F2F1),
+              ),
+          ],
+          if (needsAlignmentSpace) ...[
+            for (
+              int i = 0;
+              i < _billDenoms.length - denominations.length;
+              i++
+            )
+              SizedBox(height: rowHeight + 1),
+          ],
+          const Divider(
+            height: 18,
+            thickness: 1,
+            color: Color(0xFFDDE2DF),
+          ),
+          Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  'Subtotal',
+                  style: TextStyle(
+                    color: _grayText,
+                    fontSize: 12,
+                  ),
+                ),
+              ),
+              Flexible(
+                child: Text(
+                  _formatMoney(subtotal),
+                  textAlign: TextAlign.end,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: _green,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _cashSummaryCard() {
+    final expected = _expectedCash;
+    final balanced = _isBalanced;
+    final short = _isShort;
+    final Color statusColor = balanced
+        ? const Color(0xFF237A3B)
+        : short
+            ? const Color(0xFFC62828)
+            : const Color(0xFFE65100);
+    final String statusText = balanced
+        ? 'El efectivo cuadra'
+        : short
+            ? 'Faltan ${_formatMoney(_difference.abs())}'
+            : 'Sobran ${_formatMoney(_difference.abs())}';
+    final Color borderColor = expected == null
+        ? const Color(0xFFD3E7D6)
+        : statusColor.withValues(alpha: 0.5);
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: borderColor),
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(13),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Container(
+              color: const Color(0xFFECF6F8),
+              padding: const EdgeInsets.symmetric(
+                horizontal: 18,
+                vertical: 14,
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Importe inicial de caja',
+                    style: TextStyle(
+                      color: _grayText,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 180),
+                    child: Text(
+                      _formatMoney(_initialAmount),
+                      key: ValueKey(_initialAmount),
+                      style: const TextStyle(
+                        color: _green,
+                        fontSize: 28,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    _countMode
+                        ? 'Total calculado a partir del conteo de efectivo.'
+                        : 'Importe capturado manualmente.',
+                    style: const TextStyle(
+                      color: _grayText,
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (expected != null)
+              Padding(
+                padding: const EdgeInsets.all(18),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Expanded(
+                          child: Text(
+                            'Efectivo inicial de la sucursal',
+                            style: TextStyle(
+                              color: _grayText,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ),
+                        Text(
+                          _formatMoney(expected),
+                          style: const TextStyle(
+                            color: _black,
+                            fontSize: 15,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Icon(
+                          balanced
+                              ? Icons.check_circle_rounded
+                              : Icons.error_rounded,
+                          color: statusColor,
+                          size: 20,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            statusText,
+                            style: TextStyle(
+                              color: statusColor,
+                              fontSize: 14,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (short) ...[
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: _commentController,
+                        maxLines: 2,
+                        maxLength: 200,
+                        decoration: InputDecoration(
+                          hintText: 'Comentario (opcional)',
+                          filled: true,
+                          fillColor: _fieldBackground,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10),
+                            borderSide:
+                                const BorderSide(color: _fieldBorder),
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10),
+                            borderSide:
+                                const BorderSide(color: _fieldBorder),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10),
+                            borderSide: const BorderSide(
+                              color: _green,
+                              width: 1.5,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _modeSelector() {
+    return Container(
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF0F1F0),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: _modeOption(
+              title: 'Contar efectivo',
+              selected: _countMode,
+              onTap: () {
+                setState(() {
+                  _countMode = true;
+                });
+              },
+            ),
+          ),
+          Expanded(
+            child: _modeOption(
+              title: 'Ingresar importe',
+              selected: !_countMode,
+              onTap: () {
+                setState(() {
+                  _countMode = false;
+                });
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _modeOption({
+    required String title,
+    required bool selected,
+    required VoidCallback onTap,
+  }) {
+    return Material(
+      color: selected ? const Color(0xFFECF6F8) : Colors.transparent,
+      borderRadius: BorderRadius.circular(9),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(9),
+        onTap: onTap,
+        hoverColor: const Color(0xFFD9E2E4),
+        highlightColor: const Color(0xFFD9E2E4),
+        splashColor: const Color(0xFFD9E2E4),
+        child: Container(
+          alignment: Alignment.center,
+          padding: const EdgeInsets.symmetric(
+            horizontal: 8,
+            vertical: 12,
+          ),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(9),
+            border: selected
+                ? Border.all(color: _kGreen, width: 1.5)
+                : null,
+          ),
+          child: Text(
+            title,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: selected ? Colors.black : _grayText,
+              fontSize: 13,
+              fontWeight:
+                  selected ? FontWeight.bold : FontWeight.w500,
             ),
           ),
         ),
@@ -648,289 +1017,118 @@ class _StartCashRegisterScreenState extends State<StartCashRegisterScreen> {
     );
   }
 
-  Widget _keypad() {
+  Widget _manualAmountField() {
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          children: [
-            _keyButton('1'),
-            _keyButton('2'),
-            _keyButton('3'),
-          ],
+        const Text(
+          '¿Cuánto dinero hay en caja?',
+          style: TextStyle(
+            color: _black,
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+          ),
         ),
-        Row(
-          children: [
-            _keyButton('4'),
-            _keyButton('5'),
-            _keyButton('6'),
+        const SizedBox(height: 8),
+        TextField(
+          controller: _amountController,
+          focusNode: _amountFocusNode,
+          keyboardType: const TextInputType.numberWithOptions(
+            decimal: true,
+          ),
+          inputFormatters: [
+            FilteringTextInputFormatter.allow(
+              RegExp(r'^\d{0,9}(\.\d{0,2})?$'),
+            ),
           ],
+          onChanged: (_) {
+            setState(() {});
+          },
+          decoration: InputDecoration(
+            prefixText: '\$ ',
+            hintText: '0.00',
+            filled: true,
+            fillColor: _fieldBackground,
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 14,
+              vertical: 15,
+            ),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide: const BorderSide(color: _fieldBorder),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide: const BorderSide(color: _fieldBorder),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide: const BorderSide(
+                color: _green,
+                width: 1.5,
+              ),
+            ),
+          ),
         ),
-        Row(
-          children: [
-            _keyButton('7'),
-            _keyButton('8'),
-            _keyButton('9'),
-          ],
-        ),
-        Row(
-          children: [
-            _keyButton('.'),
-            _keyButton('0'),
-            _keyButton('⌫'),
-          ],
+        const SizedBox(height: 8),
+        const Text(
+          'Escribe el importe total, incluyendo los centavos si los hay.',
+          style: TextStyle(
+            color: _grayText,
+            fontSize: 12,
+          ),
         ),
       ],
     );
   }
 
-  Future<bool> _showConfirmDialog() async {
-    final screenWidth = MediaQuery.of(context).size.width;
-    final result = await showDialog<bool>(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) {
-        final dialogWidth = screenWidth >= 800 ? 440.0 : null;
-        return Dialog(
-          backgroundColor: Colors.transparent,
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 440),
-            child: SizedBox(
-              width: dialogWidth,
-              child: Container(
-                padding: const EdgeInsets.all(24),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF242424),
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    SizedBox(
-                      width: 80,
-                      height: 70,
-                      child: Image.asset(
-                        'assets/logo.png',
-                        fit: BoxFit.contain,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    const Text(
-                      '¿Iniciar caja?',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 22,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 22),
-                    Row(
-                      children: [
-                        const Icon(
-                          Icons.calendar_today_outlined,
-                          color: _greenLight,
-                          size: 20,
-                        ),
-                        const SizedBox(width: 10),
-                        const Text(
-                          'Fecha:',
-                          style: TextStyle(
-                            color: Colors.white70,
-                            fontSize: 14,
-                          ),
-                        ),
-                        const Spacer(),
-                        Text(
-                          _dateText,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 14),
-                    Row(
-                      children: [
-                        const Icon(
-                          Icons.access_time,
-                          color: _greenLight,
-                          size: 20,
-                        ),
-                        const SizedBox(width: 10),
-                        const Text(
-                          'Hora:',
-                          style: TextStyle(
-                            color: Colors.white70,
-                            fontSize: 14,
-                          ),
-                        ),
-                        const Spacer(),
-                        Text(
-                          _timeText,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 18),
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.symmetric(
-                        vertical: 16,
-                        horizontal: 18,
-                      ),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF181818),
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                      child: Column(
-                        children: [
-                          const Text(
-                            'Efectivo inicial',
-                            style: TextStyle(
-                              color: Colors.white70,
-                              fontSize: 13,
-                            ),
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            '\$$_amountText',
-                            style: const TextStyle(
-                              color: _greenLight,
-                              fontSize: 27,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 22),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: OutlinedButton(
-                            onPressed: () {
-                              Navigator.pop(context, false);
-                            },
-                            style: OutlinedButton.styleFrom(
-                              side: const BorderSide(
-                                color: Colors.white38,
-                              ),
-                              foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(
-                                vertical: 13,
-                              ),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                            ),
-                            child: const Text('Cancelar'),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: ElevatedButton(
-                            onPressed: () {
-                              Navigator.pop(context, true);
-                            },
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: _green,
-                              foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(
-                                vertical: 13,
-                              ),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                            ),
-                            child: const Text('Confirmar'),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        );
-      },
-    );
-    return result ?? false;
-  }
-
   Future<void> _onStart() async {
-    if (_saving) return;
-    FocusScope.of(context).unfocus();
-    if (_amount.isEmpty) {
-      _showTopAlert(
-        message: 'Ingresa el efectivo en caja.',
-        icon: Icons.attach_money_rounded,
-      );
-      _amountFocusNode.requestFocus();
-      return;
-    }
-    final amount = double.tryParse(_amount);
-    if (amount == null || !amount.isFinite || amount < 0) {
-      _showTopAlert(
-        message: 'Ingresa un monto válido.',
-        icon: Icons.warning_amber_rounded,
-      );
-      _amountFocusNode.requestFocus();
-      return;
-    }
+    if (_saving || _loadingBranch) return;
     final user = Session.user;
     if (user == null) {
       _showTopAlert(
-        message: 'No se encontró la sesión del usuario. Inicia sesión nuevamente.',
-        icon: Icons.person_outline_rounded,
+        'Tu sesión ha expirado. Inicia sesión nuevamente.',
       );
       return;
     }
-      if (_loadingBranches) {
+    if (_branchId == null) {
+      _showTopAlert('No se encontró una sucursal asignada.');
+      return;
+    }
+    if (_initialAmount <= 0) {
       _showTopAlert(
-        message: 'Espera mientras se cargan las sucursales.',
-        icon: Icons.hourglass_empty_rounded,
+        _countMode
+            ? 'Registra al menos un billete o una moneda.'
+            : 'Escribe un importe inicial mayor que cero.',
       );
       return;
     }
-    final branchId = _selectedBranchId;
-    if (branchId == null ||
-        !_assignedBranches.any((branch) => branch['id'] == branchId)) {
-      _showTopAlert(
-        message: 'Selecciona una sucursal activa.',
-        icon: Icons.store_outlined,
-      );
+    if (!_countMode && _manualAmount > 999999999.99) {
+      _showTopAlert('El importe ingresado es demasiado grande.');
       return;
     }
     final confirmed = await _showConfirmDialog();
     if (!confirmed || !mounted) return;
-
     setState(() {
       _saving = true;
     });
     try {
       await CashClosureService().openCashRegister(
-        idBranch: branchId,
+        idBranch: _branchId!,
         idUser: user.idUser,
-        initialCash: amount,
+        initialCash: _initialAmount,
         openingDate: DateTime.now(),
+        configuredInitialCash: _expectedCash,
+        initialCashComment: _isShort
+            ? _commentController.text.trim()
+            : null,
       );
       if (!mounted) return;
-      Navigator.pushReplacementNamed(
-        context,
-        '/ventas',
-      );
+      Navigator.pushReplacementNamed(context, '/ventas');
     } catch (e) {
       if (!mounted) return;
       _showTopAlert(
-        message: e.toString().replaceFirst('Exception: ', ''),
-        icon: Icons.error_outline_rounded,
+        'No fue posible iniciar la caja. Inténtalo nuevamente.',
       );
     } finally {
       if (mounted) {
@@ -940,293 +1138,230 @@ class _StartCashRegisterScreenState extends State<StartCashRegisterScreen> {
       }
     }
   }
-     
-  Widget _startButton() {
-    return SizedBox(
-      width: double.infinity,
-      height: 52,
-      child: ElevatedButton(
-        onPressed: _saving ? null : _onStart,
-        style: ElevatedButton.styleFrom(
-          backgroundColor: _green,
-          foregroundColor: Colors.white,
-          disabledBackgroundColor: _green.withValues(alpha: 0.5),
-          elevation: 0,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-        ),
-        child: _saving
-            ? const SizedBox(
-                width: 22,
-                height: 22,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  color: Colors.white,
-                ),
-              )
-            : const Text(
-                'Iniciar caja',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-      ),
-    );
-  }
 
-  Widget _imageSection() {
-    return Expanded(
-      flex: 1,
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final availableHeight = constraints.maxHeight;
-          final availableWidth = constraints.maxWidth;
-          final imageWidth =
-              (availableWidth * 0.78).clamp(380.0, 620.0);
-          final imageHeight =
-              (availableHeight * 0.62).clamp(330.0, 500.0);
-          return Padding(
-            padding: const EdgeInsets.fromLTRB(25, 28, 25, 28),
-            child: Column(
-              children: [
-                RichText(
-                  textAlign: TextAlign.center,
-                  text: const TextSpan(
-                    children: [
-                      TextSpan(
-                        text: 'Punto ',
-                        style: TextStyle(
-                          color: _black,
-                          fontSize: 32,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      TextSpan(
-                        text: 'de Venta',
-                        style: TextStyle(
-                          color: _greenLight,
-                          fontSize: 32,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 6),
-                const Text(
-                  'Tu negocio, más cerca de tus clientes',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: _grayText,
-                    fontSize: 14,
-                  ),
-                ),
-                Expanded(
-                  child: Center(
-                    child: Container(
-                      width: imageWidth,
-                      height: imageHeight,
-                      alignment: Alignment.center,
-                      child: Image.asset(
-                        'assets/logo.png',
-                        width: imageWidth,
-                        height: imageHeight,
-                        fit: BoxFit.contain,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          );
-        },
-      ),
-    );
-  }
-
-  Widget _mobileImageSection(double screenWidth) {
-    final double imageWidth =
-        (screenWidth * 0.40).clamp(120.0, 170.0);
-    return SizedBox(
-      width: double.infinity,
-      height: 150,
-      child: Padding(
-        padding: const EdgeInsets.only(
-          left: 15,
-          right: 15,
-          top: 8,
-        ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            RichText(
-              textAlign: TextAlign.center,
-              text: const TextSpan(
-                children: [
-                  TextSpan(
-                    text: 'Punto ',
-                    style: TextStyle(
-                      color: _black,
-                      fontSize: 22,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  TextSpan(
-                    text: 'de Venta',
-                    style: TextStyle(
-                      color: _greenLight,
-                      fontSize: 22,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 4),
-            const Text(
-              'Tu negocio, más cerca de tus clientes',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: _grayText,
-                fontSize: 12,
-              ),
-            ),
-            const SizedBox(height: 8),
-            SizedBox(
-              width: imageWidth,
-              height: 80,
-              child: Image.asset(
+  Widget _header() {
+    final user = Session.user;
+    final userName = user?.nameUser.trim().split(' ').first ?? '';
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compact = constraints.maxWidth < 500;
+        final hPad = compact
+            ? 14.0
+            : (constraints.maxWidth * 0.052).clamp(24.0, 110.0);
+        return Container(
+          width: double.infinity,
+          height: compact ? 64 : 70,
+          color: const Color(0xFF202020),
+          padding: EdgeInsets.symmetric(horizontal: hPad),
+          child: Row(
+            children: [
+              Image.asset(
                 'assets/logo.png',
-                fit: BoxFit.contain,
+                height: compact ? 36 : 56,
+                errorBuilder: (context, error, stackTrace) =>
+                    const SizedBox.shrink(),
               ),
+              SizedBox(width: compact ? 10 : 20),
+              Expanded(
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text.rich(
+                    TextSpan(
+                      style: TextStyle(
+                        fontSize: compact ? 18 : 24,
+                        fontWeight: FontWeight.w500,
+                      ),
+                      children: const [
+                        TextSpan(
+                          text: 'Punto ',
+                          style: TextStyle(color: Colors.white),
+                        ),
+                        TextSpan(
+                          text: 'de Venta',
+                          style: TextStyle(color: _greenLight),
+                        ),
+                      ],
+                    ),
+                    maxLines: 1,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              _userChip(userName, compact),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _userChip(String userName, bool compact) {
+    return ConstrainedBox(
+      constraints: BoxConstraints(maxWidth: compact ? 130 : 240),
+      child: Container(
+        height: compact ? 38 : 44,
+        padding: EdgeInsets.symmetric(
+          horizontal: compact ? 12 : 16,
+        ),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(30),
+          border: Border.all(color: Colors.white70),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.person_rounded,
+              color: _greenLight,
+              size: compact ? 20 : 24,
             ),
+            if (userName.isNotEmpty) ...[
+              SizedBox(width: compact ? 6 : 8),
+              Flexible(
+                child: Text(
+                  userName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: compact ? 13 : 15,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+            ],
           ],
         ),
       ),
     );
   }
 
-  Widget _formSection({bool mobile = false}) {
-    return Expanded(
-      flex: 1,
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          return SingleChildScrollView(
-            padding: EdgeInsets.fromLTRB(
-              mobile ? 25 : 35,
-              mobile ? 8 : 20,
-              mobile ? 25 : 35,
-              mobile ? 12 : 20,
-            ),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 500),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+  Widget _startButton() {
+    return SizedBox(
+      width: double.infinity,
+      height: 54,
+      child: ElevatedButton(
+        onPressed: _saving || _loadingBranch ? null : _onStart,
+        style: _tealButtonStyle(radius: 14),
+        child: _saving
+            ? const SizedBox(
+                width: 24,
+                height: 24,
+                child: CircularProgressIndicator(
+                  color: _kGreen,
+                  strokeWidth: 2.5,
+                ),
+              )
+            : const Row(
+                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Align(
-                    alignment: Alignment.center,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.center,
-                      children: const [
-                        Text(
-                          'Bienvenido',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            color: _black,
-                            fontSize: 30,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        SizedBox(height: 5),
-                        Text(
-                          'Inicia la caja para comenzar el día.',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            color: _grayText,
-                            fontSize: 14,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  SizedBox(height: mobile ? 14 : 18),
-                  if (_canSelectBranch) ...[
-                    const Text(
-                      'Sucursal',
-                      style: TextStyle(
-                        color: _black,
-                        fontSize: 15,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const SizedBox(height: 7),
-                    _branchField(),
-                    const SizedBox(height: 12),
-                  ],
-                  const Text(
-                    'Fecha de inicio',
+                  SizedBox(width: 10),
+                  Text(
+                    'Iniciar caja',
                     style: TextStyle(
-                      color: _black,
-                      fontSize: 15,
-                      fontWeight: FontWeight.w600,
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 0.3,
                     ),
                   ),
-                  const SizedBox(height: 7),
-                  _readOnlyField(
-                    icon: Icons.calendar_today_outlined,
-                    text: _dateText,
-                    centered: false,
-                  ),
-                  const SizedBox(height: 12),
-                  const Text(
-                    'Hora de inicio',
-                    style: TextStyle(
-                      color: _black,
-                      fontSize: 15,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(height: 7),
-                  _readOnlyField(
-                    icon: Icons.access_time,
-                    text: _timeText,
-                    centered: false,
-                  ),
-                  const SizedBox(height: 16),
-                  const Text(
-                    'Efectivo inicial',
-                    style: TextStyle(
-                      color: _black,
-                      fontSize: 15,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(height: 7),
-                  _amountField(),
-                  const SizedBox(height: 9),
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: Text(
-                      'Monto: \$$_amountText',
-                      style: const TextStyle(
-                        color: Color.fromARGB(255, 16, 16, 16),
-                        fontSize: 13,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 5),
-                  _keypad(),
-                  const SizedBox(height: 12),
-                  _startButton(),
                 ],
               ),
-            ),
-          );
-        },
+      ),
+    );
+  }
+
+  Widget _form() {
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(
+          maxWidth: _contentMaxWidth,
+        ),
+        child: SizedBox(
+          width: double.infinity,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const SizedBox(
+                width: double.infinity,
+                child: Text(
+                  'Inicio de caja',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: _black,
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 5),
+              const SizedBox(
+                width: double.infinity,
+                child: Text(
+                  'Prepara tu caja para comenzar a registrar ventas.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: _grayText,
+                    fontSize: 14,
+                    height: 1.4,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 18),
+              _modeSelector(),
+              const SizedBox(height: 18),
+              if (_countMode) ...[
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    final compact = constraints.maxWidth < 500;
+                    return IntrinsicHeight(
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Expanded(
+                            child: _denomSection(
+                              title: 'Billetes',
+                              denominations: _billDenoms
+                                  .map((e) => e.toDouble())
+                                  .toList(),
+                              compact: compact,
+                            ),
+                          ),
+                          SizedBox(width: compact ? 8 : 14),
+                          Expanded(
+                            child: _denomSection(
+                              title: 'Monedas',
+                              denominations: _coinDenoms,
+                              compact: compact,
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+              ] else ...[
+                _manualAmountField(),
+              ],
+              const SizedBox(height: 18),
+              _cashSummaryCard(),
+              const SizedBox(height: 20),
+              _startButton(),
+              if (_loadingBranch) ...[
+                const SizedBox(height: 12),
+                const Center(
+                  child: Text(
+                    'Verificando sucursal...',
+                    style: TextStyle(
+                      color: _grayText,
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -1234,27 +1369,18 @@ class _StartCashRegisterScreenState extends State<StartCashRegisterScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: _white,
+      backgroundColor: const Color(0xFFF5F6F5),
       body: SafeArea(
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final isWide = constraints.maxWidth >= 800;
-            if (isWide) {
-              return Row(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  _imageSection(),
-                  _formSection(mobile: false),
-                ],
-              );
-            }
-            return Column(
-              children: [
-                _mobileImageSection(constraints.maxWidth),
-                _formSection(mobile: true),
-              ],
-            );
-          },
+        child: Column(
+          children: [
+            _header(),
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(20),
+                child: _form(),
+              ),
+            ),
+          ],
         ),
       ),
     );

@@ -61,14 +61,13 @@ class _LoginScreenState extends State<LoginScreen> {
     if (!mounted) return;
 
     if (cajaAbierta != null && !cajaAbierta.statusClosing) {
-      // Si ya tiene caja abierta, regresar a ventas.
       Navigator.pushNamedAndRemoveUntil(
         context,
         '/ventas',
         (route) => false,
       );
     } else {
-      // Si no tiene caja abierta, iniciar una nueva.
+
       Navigator.pushNamedAndRemoveUntil(
         context,
         '/start-cash-register',

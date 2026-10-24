@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -7,11 +6,39 @@ import '../../services/auth_service.dart';
 import '../../services/cash_closure_service.dart';
 import '../../widgets/app_header.dart';
 
-const Color _kGreen = Color(0xFF63B7C4);
-const Color _kGreenDark = Color(0xFF0F6B1F);
-const Color _kBackground = Color(0xFFFFFFFF);
+const Color _kGreen = Color.fromARGB(255, 99, 183, 196);
+const Color _kGreenDark = Color.fromARGB(255, 99, 183, 196);
+const Color _kBackground = Colors.white;
 const Color _kText = Color(0xFF171717);
 const Color _kMuted = Color(0xFF666666);
+const Color _kCancel = Color(0xFFFF5722);
+
+ButtonStyle _tealButtonStyle({
+  double radius = 12,
+  EdgeInsetsGeometry? padding,
+  Color disabled = const Color(0xFFECF6F8),
+}) {
+  return ElevatedButton.styleFrom(
+    foregroundColor: Colors.black,
+    elevation: 0,
+    padding: padding,
+    splashFactory: NoSplash.splashFactory,
+    side: const BorderSide(color: _kGreen, width: 1.5),
+    shape: RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(radius),
+    ),
+  ).copyWith(
+    backgroundColor: WidgetStateProperty.resolveWith((states) {
+      if (states.contains(WidgetState.disabled)) return disabled;
+      if (states.contains(WidgetState.pressed) ||
+          states.contains(WidgetState.hovered)) {
+        return const Color(0xFFD9E2E4);
+      }
+      return const Color(0xFFECF6F8);
+    }),
+    overlayColor: WidgetStateProperty.all(Colors.transparent),
+  );
+}
 
 class CloseCashRegisterScreen extends StatefulWidget {
   const CloseCashRegisterScreen({
@@ -24,7 +51,6 @@ class CloseCashRegisterScreen extends StatefulWidget {
     this.cashSales = 0,
     this.saleCount = 0,
   });
-
   final String idClosure;
   final String idBranch;
   final String idUser;
@@ -37,59 +63,80 @@ class CloseCashRegisterScreen extends StatefulWidget {
   State<CloseCashRegisterScreen> createState() =>
       _CloseCashRegisterScreenState();
 }
-
-class _CloseCashRegisterScreenState extends State<CloseCashRegisterScreen> {
+class _CloseCashRegisterScreenState
+    extends State<CloseCashRegisterScreen> {
+  static const List<double> _billDenoms = [
+    1000,
+    500,
+    200,
+    100,
+    50,
+    20,
+  ];
+  static const List<double> _coinDenoms = [
+    10,
+    5,
+    2,
+    1,
+    0.5,
+  ];
+  static const double _contentMaxWidth = 520;
   final CashClosureService _service = CashClosureService();
   final FirebaseFirestore _db = FirebaseFirestore.instance;
   final TextEditingController _cashController = TextEditingController();
   final FocusNode _amountFocusNode = FocusNode();
-  Timer? _timer;
-  DateTime _now = DateTime.now();
+  final TextEditingController _commentController = TextEditingController();
+  final Map<double, int> _counts = {};
+  final Map<double, TextEditingController> _countControllers = {};
   CashClosureModel? _closure;
   bool _loading = true;
   bool _saving = false;
   bool _updatingController = false;
+  bool _typeTotal = false;
+  bool _confirmedCount = false;
   String? _error;
   String _amount = '';
   double? _countedCash;
-  double? _liveTotalSale;
   double? _liveCashSale;
   int? _liveSaleCount;
-  double get _initialCash => _closure?.initialCash ?? widget.initialCash;
+  double get _initialCash =>
+      _closure?.initialCash ?? widget.initialCash;
   double get _cashSales =>
       _liveCashSale ?? _closure?.cashSale ?? widget.cashSales;
-  double get _totalSales =>
-      _liveTotalSale ?? _closure?.totalSale ?? widget.totalSales;
   int get _saleCount =>
       _liveSaleCount ?? _closure?.saleCount ?? widget.saleCount;
   double get _expectedCash => _initialCash + _cashSales;
-  String get _closeDateText {
-    final day = _now.day.toString().padLeft(2, '0');
-    final month = _now.month.toString().padLeft(2, '0');
-    return '$day/$month/${_now.year}';
-  }
-  String get _closeTimeText {
-    final hour = _now.hour.toString().padLeft(2, '0');
-    final minute = _now.minute.toString().padLeft(2, '0');
-    final second = _now.second.toString().padLeft(2, '0');
-    return '$hour:$minute:$second';
-  }
+  double get _denomTotal => _counts.entries.fold(
+        0.0,
+        (total, entry) => total + entry.key * entry.value,
+      );
+  double get _counted =>
+      _typeTotal ? (_countedCash ?? 0) : _denomTotal;
 
   @override
   void initState() {
     super.initState();
+    for (final denomination in [..._billDenoms, ..._coinDenoms]) {
+      _counts[denomination] = 0;
+      _countControllers[denomination] =
+          TextEditingController(text: '0');
+    }
+    _amountFocusNode.addListener(_onAmountFocusChanged);
     _loadCashData();
-    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (!mounted) return;
-      setState(() => _now = DateTime.now());
-    });
+  }
+  void _onAmountFocusChanged() {
+    if (mounted) setState(() {});
   }
 
   @override
   void dispose() {
-    _timer?.cancel();
     _cashController.dispose();
+    _commentController.dispose();
+    _amountFocusNode.removeListener(_onAmountFocusChanged);
     _amountFocusNode.dispose();
+    for (final controller in _countControllers.values) {
+      controller.dispose();
+    }
     super.dispose();
   }
 
@@ -99,7 +146,6 @@ class _CloseCashRegisterScreenState extends State<CloseCashRegisterScreen> {
         _loading = true;
         _error = null;
         _closure = null;
-        _liveTotalSale = null;
         _liveCashSale = null;
         _liveSaleCount = null;
       });
@@ -116,24 +162,30 @@ class _CloseCashRegisterScreenState extends State<CloseCashRegisterScreen> {
             .get();
         final documents = snapshot.docs.where((doc) {
           final data = doc.data();
-          final branch = (data['id_branch'] ?? '').toString().trim();
-          final user = (data['id_users'] ?? data['id_user'] ?? '')
-              .toString()
-              .trim();
-          final branchMatches = widget.idBranch.trim().isEmpty ||
-              branch == widget.idBranch.trim();
+          final branch =
+              (data['id_branch'] ?? '').toString().trim();
+          final user =
+              (data['id_users'] ?? data['id_user'] ?? '')
+                  .toString()
+                  .trim();
+          final branchMatches =
+              widget.idBranch.trim().isEmpty ||
+                  branch == widget.idBranch.trim();
           final userMatches =
-              widget.idUser.trim().isEmpty || user == widget.idUser.trim();
+              widget.idUser.trim().isEmpty ||
+                  user == widget.idUser.trim();
           return branchMatches && userMatches;
         }).toList();
         if (documents.isNotEmpty) {
           documents.sort((a, b) {
             final aDate = a.data()['opening_date'];
             final bDate = b.data()['opening_date'];
-            final aTime =
-                aDate is Timestamp ? aDate.millisecondsSinceEpoch : 0;
-            final bTime =
-                bDate is Timestamp ? bDate.millisecondsSinceEpoch : 0;
+            final aTime = aDate is Timestamp
+                ? aDate.millisecondsSinceEpoch
+                : 0;
+            final bTime = bDate is Timestamp
+                ? bDate.millisecondsSinceEpoch
+                : 0;
             return bTime.compareTo(aTime);
           });
           result = CashClosureModel.fromFirestore(documents.first);
@@ -142,7 +194,7 @@ class _CloseCashRegisterScreenState extends State<CloseCashRegisterScreen> {
       if (!mounted) return;
       if (result == null) {
         setState(() {
-          _error = widget.idClosure.trim().isNotEmpty
+          _error = idIsNotEmpty()
               ? 'No se encontró el documento de la caja indicado.'
               : 'No hay cajas abiertas que coincidan con los filtros. '
                   'Verifica que exista una caja con status_closing = false.';
@@ -153,15 +205,17 @@ class _CloseCashRegisterScreenState extends State<CloseCashRegisterScreen> {
       final loaded = result;
       Map<String, dynamic>? summary;
       if (!loaded.statusClosing) {
-        summary = await _service.calculateSalesSummary(loaded.idClosure);
+        summary =
+            await _service.calculateSalesSummary(loaded.idClosure);
       }
       if (!mounted) return;
       setState(() {
         _closure = loaded;
         if (summary != null) {
-          _liveTotalSale = (summary['total_sale'] as num).toDouble();
-          _liveCashSale = (summary['cash_sale'] as num).toDouble();
-          _liveSaleCount = (summary['sale_count'] as num).toInt();
+          _liveCashSale =
+              (summary['cash_sale'] as num).toDouble();
+          _liveSaleCount =
+              (summary['sale_count'] as num).toInt();
         }
         _loading = false;
       });
@@ -173,7 +227,7 @@ class _CloseCashRegisterScreenState extends State<CloseCashRegisterScreen> {
       });
     }
   }
-
+  bool idIsNotEmpty() => widget.idClosure.trim().isNotEmpty;
   double? _parseCash(String value) {
     final normalized = value.trim().replaceAll(',', '');
     if (normalized.isEmpty) return null;
@@ -193,7 +247,7 @@ class _CloseCashRegisterScreenState extends State<CloseCashRegisterScreen> {
     if (integerPart.isEmpty) integerPart = '0';
     final formattedInteger = integerPart.replaceAllMapped(
       RegExp(r'\B(?=(\d{3})+(?!\d))'),
-      (match) => ',',
+      (_) => ',',
     );
     if (decimalPart != null) {
       return '$formattedInteger.$decimalPart';
@@ -206,7 +260,9 @@ class _CloseCashRegisterScreenState extends State<CloseCashRegisterScreen> {
     _updatingController = true;
     _cashController.value = TextEditingValue(
       text: formatted,
-      selection: TextSelection.collapsed(offset: formatted.length),
+      selection: TextSelection.collapsed(
+        offset: formatted.length,
+      ),
     );
     _updatingController = false;
   }
@@ -228,13 +284,11 @@ class _CloseCashRegisterScreenState extends State<CloseCashRegisterScreen> {
       }
       return;
     }
-    final valid = RegExp(r'^\d*\.?\d{0,2}$');
-    if (!valid.hasMatch(cleanValue)) {
+    if (!RegExp(r'^\d*\.?\d{0,2}$').hasMatch(cleanValue)) {
       _restoreController();
       return;
     }
-    final integerPart = cleanValue.split('.').first;
-    if (integerPart.length > 9) {
+    if (cleanValue.split('.').first.length > 9) {
       _restoreController();
       return;
     }
@@ -247,14 +301,17 @@ class _CloseCashRegisterScreenState extends State<CloseCashRegisterScreen> {
       0,
       rawCursor.clamp(0, cleanValue.length),
     );
-    final formattedBeforeCursor = _formatInputValue(cursorBefore);
+    final formattedBeforeCursor =
+        _formatInputValue(cursorBefore);
     final formatted = _formatInputValue(cleanValue);
-    final newCursor = formattedBeforeCursor.length;
     _updatingController = true;
     _cashController.value = TextEditingValue(
       text: formatted,
       selection: TextSelection.collapsed(
-        offset: newCursor.clamp(0, formatted.length),
+        offset: formattedBeforeCursor.length.clamp(
+          0,
+          formatted.length,
+        ),
       ),
     );
     _updatingController = false;
@@ -262,7 +319,6 @@ class _CloseCashRegisterScreenState extends State<CloseCashRegisterScreen> {
 
   void _onAmountChanged(String value) {
     if (_updatingController) return;
-    final cleanValue = value.replaceAll(',', '');
     final cursor = _cashController.selection.baseOffset;
     int rawCursor = cursor;
     if (cursor > 0) {
@@ -272,47 +328,56 @@ class _CloseCashRegisterScreenState extends State<CloseCashRegisterScreen> {
       );
       rawCursor = beforeCursor.replaceAll(',', '').length;
     }
-    _updateAmount(cleanValue, cursorPosition: rawCursor);
+
+    _updateAmount(
+      value.replaceAll(',', ''),
+      cursorPosition: rawCursor,
+    );
   }
 
-  void _onKey(String value) {
-    final current = _amount;
-    final controllerValue = _cashController.value;
-    int cursor = controllerValue.selection.baseOffset;
-    final displayText = controllerValue.text;
-    if (cursor >= 0 && cursor <= displayText.length) {
-      cursor = displayText.substring(0, cursor).replaceAll(',', '').length;
-    } else {
-      cursor = current.length;
-    }
-    final selectionEnd = cursor;
-    if (value == '⌫') {
-      if (current.isEmpty || cursor == 0) return;
-      final newValue = current.replaceRange(cursor - 1, cursor, '');
-      _updateAmount(
-        newValue,
-        cursorPosition: cursor - 1,
+  void _setCount(double denomination, int value) {
+    setState(() => _counts[denomination] = value);
+    final text = value.toString();
+    final controller = _countControllers[denomination]!;
+    if (controller.text != text) {
+      controller.value = TextEditingValue(
+        text: text,
+        selection: TextSelection.collapsed(
+          offset: text.length,
+        ),
       );
+    }
+  }
+
+  void _changeCount(double denomination, int delta) {
+    final next = ((_counts[denomination] ?? 0) + delta)
+        .clamp(0, 99999)
+        .toInt();
+    _setCount(denomination, next);
+  }
+
+  void _onCountTyped(double denomination, String text) {
+    final value = int.tryParse(text) ?? 0;
+    setState(() => _counts[denomination] = value);
+  }
+
+  String _denomLabel(double denomination) {
+    return denomination >= 1
+        ? '\$${_formatInputValue(denomination.toInt().toString())}'
+        : '\$${denomination.toStringAsFixed(2)}';
+  }
+
+  void _goToSummary() {
+    FocusScope.of(context).unfocus();
+    if (_typeTotal && _countedCash == null) {
+      _showTopAlert(
+        message: 'Ingresa el efectivo contado para continuar.',
+        icon: Icons.attach_money_rounded,
+      );
+      _amountFocusNode.requestFocus();
       return;
     }
-    if (value == '.') {
-      if (current.contains('.')) return;
-      final newValue = current.replaceRange(cursor, selectionEnd, '.');
-      _updateAmount(
-        newValue,
-        cursorPosition: cursor + 1,
-      );
-      return;
-    }
-    if (!RegExp(r'^\d$').hasMatch(value)) return;
-    final newValue = current.replaceRange(cursor, selectionEnd, value);
-    final valid = RegExp(r'^\d*\.?\d{0,2}$');
-    if (!valid.hasMatch(newValue)) return;
-    if (newValue.split('.').first.length > 9) return;
-    _updateAmount(
-      newValue,
-      cursorPosition: cursor + 1,
-    );
+    setState(() => _confirmedCount = true);
   }
 
   void _showTopAlert({
@@ -322,76 +387,69 @@ class _CloseCashRegisterScreenState extends State<CloseCashRegisterScreen> {
   }) {
     final overlay = Overlay.of(context);
     late OverlayEntry overlayEntry;
-    final Color bgColor = success
-        ? const Color(0xFFE8F5E9)
-        : const Color(0xFFFDECEA);
-    final Color borderColor = success
-        ? const Color(0xFFA5D6A7)
-        : const Color(0xFFF5B5B0);
-    final Color contentColor = success
-        ? const Color(0xFF1B5E20)
-        : const Color(0xFFB3261E);
-    final IconData alertIcon =
+    final bgColor =
+        success ? const Color(0xFFE8F5E9) : const Color(0xFFFDECEA);
+    final borderColor =
+        success ? const Color(0xFFA5D6A7) : const Color(0xFFF5B5B0);
+    final contentColor =
+        success ? const Color(0xFF1B5E20) : const Color(0xFFB3261E);
+    final alertIcon =
         icon ?? (success ? Icons.check_circle : Icons.error);
     overlayEntry = OverlayEntry(
-      builder: (context) {
-        return Positioned(
-          top: 18,
-          left: 20,
-          right: 20,
-          child: SafeArea(
-            child: Center(
-              child: TweenAnimationBuilder<double>(
-                duration: const Duration(milliseconds: 250),
-                curve: Curves.easeOut,
-                tween: Tween<double>(begin: -20, end: 0),
-                builder: (context, value, child) {
-                  return Transform.translate(
-                    offset: Offset(0, value),
-                    child: child,
-                  );
-                },
-                child: Material(
-                  color: Colors.transparent,
-                  child: Container(
-                    constraints: const BoxConstraints(maxWidth: 420),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 18,
-                      vertical: 14,
-                    ),
-                    decoration: BoxDecoration(
-                      color: bgColor,
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(color: borderColor),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          alertIcon,
-                          color: contentColor,
-                          size: 22,
-                        ),
-                        const SizedBox(width: 12),
-                        Flexible(
-                          child: Text(
-                            message,
-                            style: TextStyle(
-                              color: contentColor,
-                              fontSize: 14,
-                              fontWeight: FontWeight.w600,
-                            ),
+      builder: (context) => Positioned(
+        top: 18,
+        left: 20,
+        right: 20,
+        child: SafeArea(
+          child: Center(
+            child: TweenAnimationBuilder<double>(
+              duration: const Duration(milliseconds: 250),
+              curve: Curves.easeOut,
+              tween: Tween<double>(begin: -20, end: 0),
+              builder: (context, value, child) => Transform.translate(
+                offset: Offset(0, value),
+                child: child,
+              ),
+              child: Material(
+                color: Colors.transparent,
+                child: Container(
+                  constraints: const BoxConstraints(maxWidth: 420),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 18,
+                    vertical: 14,
+                  ),
+                  decoration: BoxDecoration(
+                    color: bgColor,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: borderColor),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        alertIcon,
+                        color: contentColor,
+                        size: 22,
+                      ),
+                      const SizedBox(width: 12),
+                      Flexible(
+                        child: Text(
+                          message,
+                          style: TextStyle(
+                            color: contentColor,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
-                      ],
-                    ),
+                      ),
+                    ],
                   ),
                 ),
               ),
             ),
           ),
-        );
-      },
+        ),
+      ),
     );
     overlay.insert(overlayEntry);
 
@@ -401,6 +459,214 @@ class _CloseCashRegisterScreenState extends State<CloseCashRegisterScreen> {
       }
     });
   }
+
+  Future<void> _showCloseConfirmation() async {
+  if (_saving) return;
+  final now = DateTime.now();
+  final difference = _counted - _expectedCash;
+  final confirmed = await showDialog<bool>(
+    context: context,
+    barrierDismissible: !_saving,
+    builder: (dialogContext) {
+      final isMobile =
+          MediaQuery.of(dialogContext).size.width < 500;
+      Widget infoTile(
+        String label,
+        String value, {
+        Color? valueColor,
+      }) {
+        return Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(
+            horizontal: 15,
+            vertical: 13,
+          ),
+          decoration: BoxDecoration(
+            color: const Color(0xFFF7F7F7),
+            borderRadius: BorderRadius.circular(13),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  label,
+                  style: const TextStyle(
+                    color: _kMuted,
+                    fontSize: 14,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Flexible(
+                child: Text(
+                  value,
+                  textAlign: TextAlign.end,
+                  style: TextStyle(
+                    color: valueColor ?? _kText,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      }
+      return Dialog(
+        backgroundColor: Colors.white,
+        surfaceTintColor: Colors.white,
+        elevation: 12,
+        insetPadding: EdgeInsets.symmetric(
+          horizontal: isMobile ? 20 : 40,
+          vertical: 24,
+        ),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(22),
+        ),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 460),
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(20, 24, 20, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                SizedBox(
+                  width: 76,
+                  height: 76,
+                  child: Image.asset(
+                    'assets/logo.png',
+                    fit: BoxFit.contain,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                const Text(
+                  '¿Cerrar caja?',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: _kText,
+                    fontSize: 25,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Verifica los datos antes de continuar.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: _kMuted,
+                    fontSize: 15,
+                  ),
+                ),
+                const SizedBox(height: 24),
+                infoTile('Fecha', _formatDateOnly(now)),
+                const SizedBox(height: 12),
+                infoTile('Hora', _formatTime(now)),
+                const SizedBox(height: 12),
+                infoTile(
+                  'Efectivo contado',
+                  _money(_counted),
+                  valueColor: _kGreenDark,
+                ),
+                const SizedBox(height: 12),
+                infoTile(
+                  'Diferencia',
+                  _money(difference),
+                  valueColor: difference < 0
+                      ? const Color(0xFFC62828)
+                      : _kGreenDark,
+                ),
+                const SizedBox(height: 22),
+                Row(
+                  children: [
+                    Expanded(
+                      child: SizedBox(
+                        height: 44,
+                        child: OutlinedButton(
+                          onPressed: () =>
+                              Navigator.of(dialogContext).pop(false),
+                          style: ButtonStyle(
+                            foregroundColor:
+                                const WidgetStatePropertyAll(_kCancel),
+                            overlayColor: const WidgetStatePropertyAll(
+                              Colors.transparent,
+                            ),
+                            backgroundColor:
+                                WidgetStateProperty.resolveWith((states) {
+                              if (states.contains(WidgetState.pressed) ||
+                                  states.contains(WidgetState.hovered) ||
+                                  states.contains(WidgetState.focused)) {
+                                return _kCancel.withValues(alpha: 0.12);
+                              }
+                              return Colors.white;
+                            }),
+                            side: WidgetStateProperty.resolveWith((states) {
+                              final pressed =
+                                  states.contains(WidgetState.pressed);
+                              return BorderSide(
+                                color: pressed
+                                    ? _kCancel.withValues(alpha: 0.25)
+                                    : _kCancel,
+                                width: 1.2,
+                              );
+                            }),
+                            shape: WidgetStatePropertyAll(
+                              RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                            ),
+                          ),
+                          child: const Text(
+                            'Cancelar',
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: SizedBox(
+                        height: 44,
+                        child: OutlinedButton(
+                          onPressed: () =>
+                              Navigator.of(dialogContext).pop(true),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.black,
+                            backgroundColor: _kGreen.withValues(alpha: 0.12),
+                            side: const BorderSide(
+                              color: _kGreen,
+                              width: 1.5,
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                          child: const Text(
+                            'Confirmar',
+                            style: TextStyle(
+                              color: Colors.black,
+                              fontSize: 14,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    },
+  );
+  if (confirmed == true && mounted) {
+    await _confirmClose();
+  }
+}
 
   Future<void> _confirmClose() async {
     if (_saving) return;
@@ -412,58 +678,22 @@ class _CloseCashRegisterScreenState extends State<CloseCashRegisterScreen> {
       );
       return;
     }
-    if (closure.statusClosing) {
+    if (_counted < _expectedCash &&
+        _commentController.text.trim().isEmpty) {
       _showTopAlert(
-        message: 'Esta caja ya está cerrada.',
-        icon: Icons.info_outline_rounded,
+        message: 'Escribe el motivo del faltante de efectivo.',
+        icon: Icons.error_outline_rounded,
       );
       return;
     }
-    final cash = _parseCash(_cashController.text);
-    if (cash == null) {
-      _showTopAlert(
-        message: 'Ingresa el efectivo contado para continuar.',
-        icon: Icons.attach_money_rounded,
-      );
-      _amountFocusNode.requestFocus();
-      return;
-    }
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text(
-          'Confirmar cierre',
-          style: TextStyle(color: _kText),
-        ),
-        content: Text(
-          '¿Estás seguro de cerrar esta caja?\n\n'
-          'Efectivo esperado: ${_money(_expectedCash)}\n'
-          'Efectivo contado: ${_money(cash)}\n'
-          'Diferencia: ${_money(cash - _expectedCash)}',
-          style: const TextStyle(color: _kText),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('Cancelar'),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: _kGreenDark,
-              foregroundColor: Colors.white,
-            ),
-            onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('Cerrar caja'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true || !mounted) return;
     setState(() => _saving = true);
     try {
       await _service.closeCashRegister(
         idClosure: closure.idClosure,
-        recordedCash: cash,
+        recordedCash: _counted,
+        closingComment: _counted < _expectedCash
+            ? _commentController.text.trim()
+            : null,
       );
       if (!mounted) return;
       await AuthService().logout();
@@ -475,7 +705,6 @@ class _CloseCashRegisterScreenState extends State<CloseCashRegisterScreen> {
     } catch (e) {
       if (!mounted) return;
       setState(() => _saving = false);
-
       _showTopAlert(
         message: 'No se pudo completar el cierre. '
             '${e.toString().replaceFirst('Exception: ', '')}',
@@ -488,19 +717,40 @@ class _CloseCashRegisterScreenState extends State<CloseCashRegisterScreen> {
     final fixed = value.abs().toStringAsFixed(2).split('.');
     final grouped = fixed[0].replaceAllMapped(
       RegExp(r'\B(?=(\d{3})+(?!\d))'),
-      (match) => ',',
+      (_) => ',',
     );
     final sign = value < 0 ? '-' : '';
     return '$sign\$$grouped.${fixed[1]}';
   }
 
   String _formatDate(DateTime date) {
-    final day = date.day.toString().padLeft(2, '0');
-    final month = date.month.toString().padLeft(2, '0');
-    final year = date.year.toString();
+    return '${_formatDateOnly(date)}  ${_formatTime(date)}';
+  }
+
+  String _formatDateOnly(DateTime date) {
+    const months = [
+      'enero',
+      'febrero',
+      'marzo',
+      'abril',
+      'mayo',
+      'junio',
+      'julio',
+      'agosto',
+      'septiembre',
+      'octubre',
+      'noviembre',
+      'diciembre',
+    ];
+    return '${date.day} de ${months[date.month - 1]} de ${date.year}';
+  }
+
+  String _formatTime(DateTime date) {
     final hour = date.hour.toString().padLeft(2, '0');
     final minute = date.minute.toString().padLeft(2, '0');
-    return '$day/$month/$year  $hour:$minute';
+    final second = date.second.toString().padLeft(2, '0');
+
+    return '$hour:$minute:$second';
   }
 
   @override
@@ -510,134 +760,7 @@ class _CloseCashRegisterScreenState extends State<CloseCashRegisterScreen> {
       appBar: const AppHeader(currentRoute: '/cierre'),
       drawer: const AppDrawer(currentRoute: '/cierre'),
       body: SafeArea(
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final wide = constraints.maxWidth >= 800;
-            if (wide) {
-              return Row(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Expanded(flex: 1, child: _brandSection()),
-                  Expanded(flex: 1, child: _buildBody()),
-                ],
-              );
-            }
-            return Column(
-              children: [
-                _mobileBrandSection(),
-                Expanded(child: _buildBody()),
-              ],
-            );
-          },
-        ),
-      ),
-    );
-  }
-
-  Widget _brandSection() {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(25, 28, 25, 28),
-      child: Column(
-        children: [
-          RichText(
-            textAlign: TextAlign.center,
-            text: const TextSpan(
-              children: [
-                TextSpan(
-                  text: 'Punto ',
-                  style: TextStyle(
-                    color: Color(0xFF111111),
-                    fontSize: 32,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                TextSpan(
-                  text: 'de Venta',
-                  style: TextStyle(
-                    color: Color(0xFF63B7C4),
-                    fontSize: 32,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 6),
-          const Text(
-            'Tu negocio, más cerca de tus clientes',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              color: Color(0xFF555555),
-              fontSize: 14,
-            ),
-          ),
-          const Expanded(
-            child: Center(
-              child: Padding(
-                padding: EdgeInsets.all(20),
-                child: Image(
-                  image: AssetImage('assets/logo.png'),
-                  fit: BoxFit.contain,
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _mobileBrandSection() {
-    return SizedBox(
-      height: 150,
-      width: double.infinity,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(15, 8, 15, 0),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            RichText(
-              textAlign: TextAlign.center,
-              text: const TextSpan(
-                children: [
-                  TextSpan(
-                    text: 'Punto ',
-                    style: TextStyle(
-                      color: Color(0xFF111111),
-                      fontSize: 22,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  TextSpan(
-                    text: 'de Venta',
-                    style: TextStyle(
-                      color: Color(0xFF63B7C4),
-                      fontSize: 22,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 4),
-            const Text(
-              'Tu negocio, más cerca de tus clientes',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: Color(0xFF555555),
-                fontSize: 12,
-              ),
-            ),
-            const SizedBox(height: 8),
-            SizedBox(
-              height: 65,
-              child: Image.asset(
-                'assets/logo.png',
-                fit: BoxFit.contain,
-              ),
-            ),
-          ],
-        ),
+        child: _buildBody(),
       ),
     );
   }
@@ -652,20 +775,13 @@ class _CloseCashRegisterScreenState extends State<CloseCashRegisterScreen> {
       return Center(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const SizedBox(height: 16),
-              Text(
-                _error!,
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  color: _kText,
-                  fontSize: 16,
-                ),
-              ),
-              const SizedBox(height: 20),
-            ],
+          child: Text(
+            _error!,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: _kText,
+              fontSize: 16,
+            ),
           ),
         ),
       );
@@ -673,14 +789,14 @@ class _CloseCashRegisterScreenState extends State<CloseCashRegisterScreen> {
     final closure = _closure!;
     if (closure.statusClosing) {
       return Center(
-        child: Padding(
+        child: SingleChildScrollView(
           padding: const EdgeInsets.all(24),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               const Icon(
                 Icons.check_circle_outline,
-                color: _kGreen,
+                color: Color.fromARGB(255, 16, 220, 105),
                 size: 64,
               ),
               const SizedBox(height: 16),
@@ -695,7 +811,8 @@ class _CloseCashRegisterScreenState extends State<CloseCashRegisterScreen> {
               if (closure.closingDate != null) ...[
                 const SizedBox(height: 8),
                 Text(
-                  'Fecha de cierre: ${_formatDate(closure.closingDate!)}',
+                  'Fecha de cierre: '
+                  '${_formatDate(closure.closingDate!)}',
                   textAlign: TextAlign.center,
                   style: const TextStyle(color: _kMuted),
                 ),
@@ -705,196 +822,444 @@ class _CloseCashRegisterScreenState extends State<CloseCashRegisterScreen> {
         ),
       );
     }
-   return LayoutBuilder(
-  builder: (context, box) {
-    final isMobile = MediaQuery.of(context).size.width < 800;
-    final hPad = isMobile ? 22.0 : 35.0;
-    return SingleChildScrollView(
-      padding: EdgeInsets.fromLTRB(hPad, 20, hPad, 24),
-      child: ConstrainedBox(
-        constraints: BoxConstraints(
-          minHeight: (box.maxHeight - 44).clamp(0.0, double.infinity),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isMobile = constraints.maxWidth < 800;
+        final hPad = isMobile ? 20.0 : 35.0;
+        return SingleChildScrollView(
+          padding: EdgeInsets.fromLTRB(
+            hPad,
+            20,
+            hPad,
+            24,
+          ),
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(
+                maxWidth: _contentMaxWidth,
+              ),
+              child: SizedBox(
+                width: double.infinity,
+                child: _confirmedCount
+                    ? _summaryStep()
+                    : _countStep(),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _title(String title, String subtitle) {
+    return Column(
+      children: [
+        Text(
+          title,
+          textAlign: TextAlign.center,
+          style: const TextStyle(
+            color: Color(0xFF111111),
+            fontSize: 30,
+            fontWeight: FontWeight.bold,
+          ),
         ),
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 560),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-             children: [
-              const Text(
-                'Cierre de caja',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: Color(0xFF111111),
-                  fontSize: 30,
-                  fontWeight: FontWeight.bold,
+        const SizedBox(height: 4),
+        Text(
+          subtitle,
+          textAlign: TextAlign.center,
+          style: const TextStyle(
+            color: Color(0xFF555555),
+            fontSize: 14,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _countStep() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _title(
+          'Cierre de caja',
+          'Cuenta los billetes y monedas o ingresa directamente el monto.',
+        ),
+        const SizedBox(height: 18),
+        Container(
+          padding: const EdgeInsets.all(4),
+          decoration: BoxDecoration(
+            color: const Color(0xFFF0F1F0),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: _cashModeOption(
+                  title: 'Contar efectivo',
+                  selected: !_typeTotal,
+                  onTap: () {
+                    FocusScope.of(context).unfocus();
+                    setState(() => _typeTotal = false);
+                  },
                 ),
               ),
-              const SizedBox(height: 3),
-              const Text(
-                'Registra el efectivo contado para cerrar la caja.',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: Color(0xFF555555),
-                  fontSize: 14,
+              Expanded(
+                child: _cashModeOption(
+                  title: 'Ingresar importe',
+                  selected: _typeTotal,
+                  onTap: () => setState(() => _typeTotal = true),
                 ),
               ),
-              const SizedBox(height: 16),
-              const Text(
-                'Fecha de cierre',
-                style: TextStyle(
-                  color: Color(0xFF111111),
-                  fontSize: 15,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const SizedBox(height: 8),
-              _displayField(
-                icon: Icons.calendar_today_outlined,
-                text: _closeDateText,
-              ),
-              const SizedBox(height: 15),
-              const Text(
-                'Hora de cierre',
-                style: TextStyle(
-                  color: Color(0xFF111111),
-                  fontSize: 15,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const SizedBox(height: 8),
-              _displayField(
-                icon: Icons.access_time,
-                text: _closeTimeText,
-              ),
-              const SizedBox(height: 15),
-              const Text(
-                'Resumen de caja',
-                style: TextStyle(
-                  color: Color(0xFF111111),
-                  fontSize: 15,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const SizedBox(height: 8),
-              LayoutBuilder(
-                builder: (context, constraints) {
-                  final itemWidth = (constraints.maxWidth - 10) / 2;
-                  return Wrap(
-                    spacing: 10,
-                    runSpacing: 10,
-                    children: [
-                      _compactSummary(
-                        width: itemWidth,
-                        title: 'Efectivo inicial',
-                        amount: _initialCash,
-                      ),
-                      _compactSummary(
-                        width: itemWidth,
-                        title: 'Ventas en efectivo',
-                        amount: _cashSales,
-                      ),
-                      _compactSummary(
-                        width: itemWidth,
-                        title: 'Total de ventas',
-                        amount: _totalSales,
-                        subtitle: '$_saleCount ventas',
-                      ),
-                      _compactSummary(
-                        width: itemWidth,
-                        title: 'Efectivo esperado',
-                        amount: _expectedCash,
-                        highlight: true,
-                      ),
-                    ],
-                  );
-                },
-              ),
-              const SizedBox(height: 16),
-              const Text(
-                'Efectivo contado',
-                style: TextStyle(
-                  color: Color(0xFF111111),
-                  fontSize: 15,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const SizedBox(height: 8),
-              _amountField(),
-              const SizedBox(height: 7),
-              Align(
-                alignment: Alignment.centerRight,
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+        Container(
+          padding: const EdgeInsets.symmetric(
+            horizontal: 16,
+            vertical: 14,
+          ),
+          decoration: BoxDecoration(
+            color: const Color(0xFFF8F8F8),
+            border: Border.all(
+              color: const Color(0xFFDEDEDE),
+            ),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Flexible(
                 child: Text(
-                  'Monto: ${_money(_countedCash ?? 0)}',
-                  style: const TextStyle(
-                    color: Color(0xFF333333),
+                  'Ventas del turno',
+                  style: TextStyle(
+                    color: _kMuted,
                     fontSize: 14,
                   ),
                 ),
               ),
-              const SizedBox(height: 12),
-              _numericKeypad(),
-              const SizedBox(height: 12),
-              _differenceCard(),
-              const SizedBox(height: 18),
-              SizedBox(
-                height: 58,
-                child: ElevatedButton(
-                  onPressed: _saving ? null : _confirmClose,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: _kGreenDark,
-                    foregroundColor: Colors.white,
-                    disabledBackgroundColor: Colors.grey.shade700,
-                    elevation: 0,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
-                    ),
+              const SizedBox(width: 12),
+              Text(
+                '$_saleCount',
+                style: const TextStyle(
+                  color: _kText,
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+        if (_typeTotal) ...[
+          const Text(
+            'Efectivo contado',
+            style: TextStyle(
+              color: _kText,
+              fontSize: 15,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 8),
+          _amountField(),
+        ] else
+          _denomSection(),
+        const SizedBox(height: 18),
+        const Divider(height: 1),
+        const SizedBox(height: 18),
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final isNarrow = constraints.maxWidth < 380;
+            final total = Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Total contado',
+                  style: TextStyle(
+                    color: _kMuted,
+                    fontSize: 13,
                   ),
-                  child: Text(
-                    _saving
-                        ? 'Cerrando caja...'
-                        : 'Confirmar cierre de caja',
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                    ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  _money(_counted),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: _kGreenDark,
+                    fontSize: isNarrow ? 24 : 30,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            );
+            final button = SizedBox(
+              height: 52,
+              child: ElevatedButton(
+                onPressed: _goToSummary,
+                style: _tealButtonStyle(
+                  padding: EdgeInsets.symmetric(
+                    horizontal: isNarrow ? 12 : 18,
+                  ),
+                ),
+                child: const Text(
+                  'Confirmar conteo',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: Colors.black,
+                    fontSize: 15,
+                    fontWeight: FontWeight.bold,
                   ),
                 ),
               ),
-            ],              
+            );
+            if (isNarrow) {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  total,
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: button,
+                  ),
+                ],
+              );
+            }
+            return Row(
+              children: [
+                Expanded(child: total),
+                const SizedBox(width: 12),
+                button,
+              ],
+            );
+          },
+        ),
+      ],
+    );
+  }
+
+  Widget _cashModeOption({
+    required String title,
+    required bool selected,
+    required VoidCallback onTap,
+  }) {
+    return Material(
+      color: selected ? const Color(0xFFECF6F8) : Colors.transparent,
+      borderRadius: BorderRadius.circular(9),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(9),
+        onTap: onTap,
+        hoverColor: const Color(0xFFD9E2E4),
+        highlightColor: const Color(0xFFD9E2E4),
+        splashColor: const Color(0xFFD9E2E4),
+        child: Container(
+          alignment: Alignment.center,
+          padding: const EdgeInsets.symmetric(
+            horizontal: 8,
+            vertical: 12,
+          ),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(9),
+            border: selected
+                ? Border.all(color: _kGreen, width: 1.5)
+                : null,
+          ),
+          child: Text(
+            title,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: selected ? Colors.black : _kMuted,
+              fontSize: 13,
+              fontWeight:
+                  selected ? FontWeight.bold : FontWeight.w500,
             ),
           ),
         ),
       ),
     );
-  },
-);
-}
+  }
 
-  Widget _displayField({
-    required IconData icon,
-    required String text,
+  Widget _summaryStep() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _title(
+          'Resumen del cierre',
+          'Revisa los datos antes de cerrar la caja.',
+        ),
+        const SizedBox(height: 14),
+        _summaryRow('Efectivo inicial', _money(_initialCash)),
+        _summaryRow('Ventas en efectivo', _money(_cashSales)),
+        _summaryRow('Efectivo esperado', _money(_expectedCash)),
+        _summaryRow(
+          'Efectivo contado',
+          _money(_counted),
+          last: true,
+        ),
+        const SizedBox(height: 16),
+        _differenceCard(),
+        if (_counted < _expectedCash) ...[
+          const SizedBox(height: 16),
+          TextField(
+            controller: _commentController,
+            maxLines: 3,
+            maxLength: 300,
+            textCapitalization: TextCapitalization.sentences,
+            decoration: InputDecoration(
+              labelText: 'Motivo del faltante',
+              hintText: 'Explica por qué falta efectivo...',
+              alignLabelWithHint: true,
+              filled: true,
+              fillColor: const Color(0xFFF8F8F8),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(
+                  color: Color(0xFFBDBDBD),
+                ),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(
+                  color: _kGreen,
+                  width: 1.5,
+                ),
+              ),
+            ),
+          ),
+        ],
+        const SizedBox(height: 20),
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final isNarrow = constraints.maxWidth < 380;
+            final backButton = SizedBox(
+              height: 52,
+              child: OutlinedButton(
+                onPressed: _saving
+                    ? null
+                    : () => setState(() => _confirmedCount = false),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Colors.black,
+                  splashFactory: NoSplash.splashFactory,
+                  side: const BorderSide(
+                    color: _kGreen,
+                    width: 1.5,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ).copyWith(
+                  backgroundColor:
+                      WidgetStateProperty.resolveWith((states) {
+                    if (states.contains(WidgetState.pressed) ||
+                        states.contains(WidgetState.hovered)) {
+                      return const Color(0xFFD9E2E4);
+                    }
+                    return Colors.white;
+                  }),
+                  overlayColor:
+                      WidgetStateProperty.all(Colors.transparent),
+                ),
+                child: const Text(
+                  'Corregir conteo',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            );
+            final closeButton = SizedBox(
+              height: 52,
+              child: ElevatedButton(
+                onPressed: _saving ? null : _showCloseConfirmation,
+                style: _tealButtonStyle(
+                  disabled: Colors.grey.shade400,
+                ),
+                child: Text(
+                  _saving ? 'Cerrando...' : 'Cerrar caja',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: Colors.black,
+                    fontSize: 15,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            );
+            if (isNarrow) {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  SizedBox(
+                    width: double.infinity,
+                    child: backButton,
+                  ),
+                  const SizedBox(height: 10),
+                  SizedBox(
+                    width: double.infinity,
+                    child: closeButton,
+                  ),
+                ],
+              );
+            }
+
+            return Row(
+              children: [
+                Expanded(child: backButton),
+                const SizedBox(width: 12),
+                Expanded(child: closeButton),
+              ],
+            );
+          },
+        ),
+      ],
+    );
+  }
+
+  Widget _summaryRow(
+    String label,
+    String value, {
+    bool last = false,
   }) {
     return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: 18,
-        vertical: 17,
-      ),
+      padding: const EdgeInsets.symmetric(vertical: 14),
       decoration: BoxDecoration(
-        color: const Color(0xFFF8F8F8),
-        border: Border.all(color: const Color(0xFFBDBDBD)),
-        borderRadius: BorderRadius.circular(16),
+        border: last
+            ? null
+            : const Border(
+                bottom: BorderSide(
+                  color: Color(0xFFE6EBE8),
+                ),
+              ),
       ),
       child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Icon(icon, color: _kGreen, size: 23),
-          const SizedBox(width: 15),
-          Expanded(
+          Flexible(
             child: Text(
-              text,
+              label,
               style: const TextStyle(
-                color: Color(0xFF222222),
-                fontSize: 16,
+                color: _kMuted,
+                fontSize: 14,
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Flexible(
+            child: Text(
+              value,
+              textAlign: TextAlign.end,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: _kText,
+                fontSize: 15,
+                fontWeight: FontWeight.bold,
               ),
             ),
           ),
@@ -903,70 +1268,279 @@ class _CloseCashRegisterScreenState extends State<CloseCashRegisterScreen> {
     );
   }
 
-  Widget _compactSummary({
-    required double width,
-    required String title,
-    required double amount,
-    String? subtitle,
-    bool highlight = false,
+  Widget _denomSection() {
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(
+          maxWidth: _contentMaxWidth,
+        ),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final compact = constraints.maxWidth < 500;
+            return IntrinsicHeight(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Expanded(
+                    child: _denomCard(
+                      'Billetes',
+                      _billDenoms,
+                      compact: compact,
+                    ),
+                  ),
+                  SizedBox(width: compact ? 8 : 12),
+                  Expanded(
+                    child: _denomCard(
+                      'Monedas',
+                      _coinDenoms,
+                      compact: compact,
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _denomCard(
+    String title,
+    List<double> denominations, {
+    required bool compact,
   }) {
+    final subtotal = denominations.fold<double>(
+      0,
+      (total, denomination) =>
+          total + denomination * (_counts[denomination] ?? 0),
+    );
+    final rowHeight = compact ? 44.0 : 40.0;
+    final needsAlignmentSpace =
+        denominations.length < _billDenoms.length;
     return Container(
-      width: width,
-      padding: const EdgeInsets.symmetric(
-        horizontal: 12,
-        vertical: 12,
+      width: double.infinity,
+      padding: EdgeInsets.fromLTRB(
+        compact ? 8 : 10,
+        10,
+        compact ? 8 : 10,
+        8,
       ),
       decoration: BoxDecoration(
-        color: highlight
-            ? const Color(0xFFF0F9F3)
-            : const Color(0xFFF8F8F8),
-        border: Border.all(
-          color: highlight
-              ? const Color(0xFFB6DCC0)
-              : const Color(0xFFDEDEDE),
-        ),
-        borderRadius: BorderRadius.circular(14),
+        color: Colors.white,
+        border: Border.all(color: const Color(0xFFE3E8E5)),
+        borderRadius: BorderRadius.circular(12),
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
+          Text(
+            title.toUpperCase(),
+            style: const TextStyle(
+              color: _kGreenDark,
+              fontSize: 11,
+              letterSpacing: 0.35,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 7),
+          for (int i = 0; i < denominations.length; i++) ...[
+            _denomRow(denominations[i], compact: compact),
+            if (i < denominations.length - 1)
+              const Divider(
+                height: 1,
+                thickness: 1,
+                color: Color(0xFFF0F2F1),
+              ),
+          ],
+          if (needsAlignmentSpace) ...[
+            for (
+              int i = 0;
+              i < _billDenoms.length - denominations.length;
+              i++
+            )
+              SizedBox(height: rowHeight + 1),
+          ],
+          const Divider(
+            height: 18,
+            thickness: 1,
+            color: Color(0xFFDDE2DF),
+          ),
+          Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  'Subtotal',
+                  style: TextStyle(
+                    color: _kMuted,
+                    fontSize: 12,
+                  ),
+                ),
+              ),
+              Flexible(
+                child: Text(
+                  _money(subtotal),
+                  textAlign: TextAlign.end,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
-                    color: Color(0xFF555555),
-                    fontSize: 11,
+                    color: _kGreenDark,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
                   ),
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  _money(amount),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: highlight
-                        ? const Color(0xFF0F6B1F)
-                        : _kText,
-                    fontSize: 15,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                if (subtitle != null)
-                  Text(
-                    subtitle,
-                    style: const TextStyle(
-                      color: Color(0xFF777777),
-                      fontSize: 10,
-                    ),
-                  ),
-              ],
-            ),
+              ),
+            ],
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _denomRow(double denomination, {required bool compact}) {
+    final count = _counts[denomination] ?? 0;
+    final btn = compact ? 28.0 : 36.0;
+    final controls = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _stepButton(
+          icon: Icons.remove_rounded,
+          size: btn,
+          onTap: count > 0
+              ? () => _changeCount(denomination, -1)
+              : null,
+        ),
+        SizedBox(
+          width: compact ? 26 : 36,
+          child: TextField(
+            controller: _countControllers[denomination],
+            keyboardType: TextInputType.number,
+            textAlign: TextAlign.center,
+            textAlignVertical: TextAlignVertical.center,
+            inputFormatters: [
+              FilteringTextInputFormatter.digitsOnly,
+              LengthLimitingTextInputFormatter(5),
+            ],
+            onTap: () {
+              final c = _countControllers[denomination]!;
+              c.selection = TextSelection(
+                baseOffset: 0,
+                extentOffset: c.text.length,
+              );
+            },
+            onChanged: (value) => _onCountTyped(denomination, value),
+            style: TextStyle(
+              color: const Color(0xFF202522),
+              fontSize: compact ? 13 : 14,
+              fontWeight: FontWeight.w700,
+            ),
+            decoration: const InputDecoration(
+              isDense: true,
+              border: InputBorder.none,
+              enabledBorder: InputBorder.none,
+              focusedBorder: InputBorder.none,
+              contentPadding: EdgeInsets.zero,
+            ),
+          ),
+        ),
+        _stepButton(
+          icon: Icons.add_rounded,
+          size: btn,
+          onTap: () => _changeCount(denomination, 1),
+        ),
+      ],
+    );
+
+    final amountText = Text(
+      _money(denomination * count),
+      maxLines: 1,
+      style: TextStyle(
+        color: const Color(0xFF626B66),
+        fontSize: compact ? 9 : 10,
+        fontWeight: FontWeight.w500,
+      ),
+    );
+    return SizedBox(
+      height: compact ? 44 : 40,
+      child: Row(
+        children: [
+          SizedBox(
+            width: compact ? 46 : 58,
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    _denomLabel(denomination),
+                    maxLines: 1,
+                    style: const TextStyle(
+                      color: Color(0xFF202522),
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  if (compact) amountText,
+                ],
+              ),
+            ),
+          ),
+          Expanded(
+            child: Center(
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: controls,
+              ),
+            ),
+          ),
+          if (!compact) ...[
+            const SizedBox(width: 6),
+            SizedBox(
+              width: 54,
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerRight,
+                child: amountText,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _stepButton({
+    required IconData icon,
+    required VoidCallback? onTap,
+    double size = 36,
+  }) {
+    final isDisabled = onTap == null;
+    return SizedBox(
+      width: size,
+      height: size,
+      child: OutlinedButton(
+        onPressed: onTap,
+        style: OutlinedButton.styleFrom(
+          padding: EdgeInsets.zero,
+          minimumSize: Size(size, size),
+          maximumSize: Size(size, size),
+          foregroundColor: isDisabled
+              ? const Color(0xFFBFC6C2)
+              : _kGreenDark,
+          side: BorderSide(
+            color: isDisabled
+                ? const Color(0xFFE0E5E2)
+                : const Color(0xFFD5E2DA),
+          ),
+          backgroundColor: Colors.white,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(9),
+          ),
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        ),
+        child: Icon(icon, size: size < 36 ? 16 : 18),
       ),
     );
   }
@@ -979,7 +1553,7 @@ class _CloseCashRegisterScreenState extends State<CloseCashRegisterScreen> {
         color: const Color(0xFFF8F8F8),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-          color: focused ? _kGreenDark : const Color(0xFFBDBDBD),
+          color: focused ? _kGreen : const Color(0xFFBDBDBD),
           width: focused ? 1.5 : 1,
         ),
       ),
@@ -1005,7 +1579,9 @@ class _CloseCashRegisterScreenState extends State<CloseCashRegisterScreen> {
               onChanged: _onAmountChanged,
               enableInteractiveSelection: false,
               inputFormatters: [
-                FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+                FilteringTextInputFormatter.allow(
+                  RegExp(r'[0-9.]'),
+                ),
               ],
               style: const TextStyle(
                 color: Color(0xFF111111),
@@ -1043,108 +1619,14 @@ class _CloseCashRegisterScreenState extends State<CloseCashRegisterScreen> {
     );
   }
 
-  Widget _keyButton(String value) {
-    final isBackspace = value == '⌫';
-    final isMobile = MediaQuery.of(context).size.width < 800;
-    return Expanded(
-      child: Padding(
-        padding: const EdgeInsets.all(4),
-        child: Material(
-          color: Colors.transparent,
-          child: InkWell(
-            canRequestFocus: false,
-            borderRadius: BorderRadius.circular(12),
-            onTap: () {
-              final hadFocus = _amountFocusNode.hasFocus;
-              final selection = _cashController.selection;
-              if (!hadFocus || !selection.isValid) {
-                _cashController.selection = TextSelection.collapsed(
-                  offset: _cashController.text.length,
-                );
-              }
-              _amountFocusNode.requestFocus();
-              _onKey(value);
-            },
-            child: Container(
-              height: isMobile ? 46 : 58,
-              decoration: BoxDecoration(
-                color: Colors.grey.shade100,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.grey.shade300),
-              ),
-              child: Center(
-                child: isBackspace
-                    ? const Icon(
-                        Icons.backspace_outlined,
-                        color: _kGreen,
-                        size: 23,
-                      )
-                    : Text(
-                        value,
-                        style: const TextStyle(
-                          color: Color(0xFF111111),
-                          fontSize: 20,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _numericKeypad() {
-    return Column(
-      children: [
-        Row(
-          children: [
-            _keyButton('1'),
-            _keyButton('2'),
-            _keyButton('3'),
-          ],
-        ),
-        Row(
-          children: [
-            _keyButton('4'),
-            _keyButton('5'),
-            _keyButton('6'),
-          ],
-        ),
-        Row(
-          children: [
-            _keyButton('7'),
-            _keyButton('8'),
-            _keyButton('9'),
-          ],
-        ),
-        Row(
-          children: [
-            _keyButton('.'),
-            _keyButton('0'),
-            _keyButton('⌫'),
-          ],
-        ),
-      ],
-    );
-  }
-
   Widget _differenceCard() {
-    final difference =
-    _countedCash == null ? null : _countedCash! - _expectedCash;
-    late final String title;
-    late final String message;
-    late final Color color;
-    late final Color background;
-    late final Color borderColor;
-    if (difference == null) {
-      title = 'Pendiente de conteo';
-      message = 'Ingresa el efectivo contado para conocer la diferencia.';
-      color = const Color(0xFF666666);
-      background = const Color(0xFFF7F8FA);
-      borderColor = const Color(0xFFE1E4E8);
-    } else if (difference > 0) {
+    final difference = _counted - _expectedCash;
+    final String title;
+    final String message;
+    final Color color;
+    final Color background;
+    final Color borderColor;
+    if (difference > 0) {
       title = 'Sobrante de efectivo';
       message = 'Hay más efectivo del esperado en la caja.';
       color = const Color(0xFF237A3B);
@@ -1177,42 +1659,35 @@ class _CloseCashRegisterScreenState extends State<CloseCashRegisterScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Diferencia de caja',
-                      style: TextStyle(
-                        color: Color(0xFF666666),
-                        fontSize: 13,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                    const SizedBox(height: 3),
-                    Text(
-                      title,
-                      style: TextStyle(
-                        color: color,
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
+          const Text(
+            'Diferencia de caja',
+            style: TextStyle(
+              color: Color(0xFF666666),
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+            ),
           ),
-          const SizedBox(height: 18),
+          const SizedBox(height: 3),
           Text(
-            difference == null ? '--' : _money(difference),
+            title,
             style: TextStyle(
               color: color,
-              fontSize: 30,
+              fontSize: 16,
               fontWeight: FontWeight.bold,
-              letterSpacing: 0.3,
+            ),
+          ),
+          const SizedBox(height: 14),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text(
+              _money(difference),
+              style: TextStyle(
+                color: color,
+                fontSize: 30,
+                fontWeight: FontWeight.bold,
+                letterSpacing: 0.3,
+              ),
             ),
           ),
           const SizedBox(height: 6),
@@ -1224,57 +1699,6 @@ class _CloseCashRegisterScreenState extends State<CloseCashRegisterScreen> {
               height: 1.4,
             ),
           ),
-          if (difference != null) ...[
-            const SizedBox(height: 14),
-            Divider(
-              color: borderColor,
-              height: 1,
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                const Expanded(
-                  child: Text(
-                    'Efectivo esperado',
-                    style: TextStyle(
-                      color: Color(0xFF555555),
-                      fontSize: 13,
-                    ),
-                  ),
-                ),
-                Text(
-                  _money(_expectedCash),
-                  style: const TextStyle(
-                    color: Color(0xFF222222),
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                const Expanded(
-                  child: Text(
-                    'Efectivo contado',
-                    style: TextStyle(
-                      color: Color(0xFF555555),
-                      fontSize: 13,
-                    ),
-                  ),
-                ),
-                Text(
-                  _money(_countedCash!),
-                  style: const TextStyle(
-                    color: Color(0xFF222222),
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
-            ),
-          ],
         ],
       ),
     );

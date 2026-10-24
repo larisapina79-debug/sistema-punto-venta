@@ -1,5 +1,4 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-
 class CashClosureModel {
   final String idClosure;
   final DateTime openingDate;
@@ -14,6 +13,9 @@ class CashClosureModel {
   final String idUsers;
   final bool statusClosing;
   final int saleCount;
+  final double? configuredInitialCash;
+  final String? initialCashComment;
+  final String? closingComment;
 
   const CashClosureModel({
     this.idClosure = '',
@@ -29,12 +31,16 @@ class CashClosureModel {
     required this.idUsers,
     this.statusClosing = false,
     this.saleCount = 0,
+    this.configuredInitialCash,
+    this.initialCashComment,
+    this.closingComment,
   });
 
   factory CashClosureModel.fromFirestore(
     DocumentSnapshot<Map<String, dynamic>> doc,
   ) {
     final data = doc.data() ?? <String, dynamic>{};
+
     return CashClosureModel(
       idClosure: doc.id,
       openingDate: _date(data['opening_date']) ?? DateTime.now(),
@@ -46,9 +52,15 @@ class CashClosureModel {
       recordedCash: _number(data['recorded_cash']),
       difference: _number(data['difference']),
       idBranch: data['id_branch']?.toString() ?? '',
-      idUsers: (data['id_users'] ?? data['id_user'])?.toString() ?? '',
+      idUsers:
+          (data['id_users'] ?? data['id_user'])?.toString() ?? '',
       statusClosing: data['status_closing'] == true,
       saleCount: _integer(data['sale_count']),
+      configuredInitialCash: data['configured_initial_cash'] == null
+          ? null
+          : _number(data['configured_initial_cash']),
+      initialCashComment: data['initial_cash_comment']?.toString(),
+      closingComment: data['closing_comment']?.toString(),
     );
   }
 
@@ -68,6 +80,9 @@ class CashClosureModel {
       'id_users': idUsers,
       'status_closing': statusClosing,
       'sale_count': saleCount,
+      'configured_initial_cash': configuredInitialCash,
+      'initial_cash_comment': initialCashComment,
+      'closing_comment': closingComment,
     };
   }
 
@@ -76,6 +91,7 @@ class CashClosureModel {
     if (value is DateTime) return value;
     return null;
   }
+
   static double _number(dynamic value) {
     if (value is num) return value.toDouble();
     if (value is String) {
@@ -107,6 +123,9 @@ class CashClosureModel {
     String? idUsers,
     bool? statusClosing,
     int? saleCount,
+    double? configuredInitialCash,
+    String? initialCashComment,
+    String? closingComment,
   }) {
     return CashClosureModel(
       idClosure: idClosure ?? this.idClosure,
@@ -124,6 +143,10 @@ class CashClosureModel {
       idUsers: idUsers ?? this.idUsers,
       statusClosing: statusClosing ?? this.statusClosing,
       saleCount: saleCount ?? this.saleCount,
+      configuredInitialCash:
+          configuredInitialCash ?? this.configuredInitialCash,
+      initialCashComment: initialCashComment ?? this.initialCashComment,
+      closingComment: closingComment ?? this.closingComment,
     );
   }
 }
