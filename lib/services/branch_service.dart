@@ -6,7 +6,6 @@ import 'package:image_picker/image_picker.dart';
 
 class BranchService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-
   CollectionReference<Map<String, dynamic>> get _branches =>
       _firestore.collection('branches');
   Future<List<Map<String, dynamic>>> getBranches() async {
@@ -18,9 +17,10 @@ class BranchService {
       };
     }).toList();
   }
-  Future<List<Map<String, dynamic>>> getActiveBranches() async {
-    final snapshot = await _branches.where('branch_status', isEqualTo: true).get();
 
+  Future<List<Map<String, dynamic>>> getActiveBranches() async {
+    final snapshot =
+        await _branches.where('branch_status', isEqualTo: true).get();
     return snapshot.docs.map((doc) {
       return {
         'id': doc.id,
@@ -28,6 +28,7 @@ class BranchService {
       };
     }).toList();
   }
+
   Future<Map<String, dynamic>?> getBranchById(String id) async {
     final doc = await _branches.doc(id).get();
     if (!doc.exists || doc.data() == null) {
@@ -42,6 +43,7 @@ class BranchService {
   Future<String> createBranch({
     required String name,
     required String address,
+    String phoneNumber = '', 
     String logo = '',
     bool status = true,
   }) async {
@@ -49,22 +51,27 @@ class BranchService {
       'branch_name': name.trim(),
       'branch_address': address.trim(),
       'branch_logo': logo.trim(),
+      'phone_number': phoneNumber.trim(),
       'branch_status': status,
     });
     return doc.id;
   }
+
   Future<void> updateBranch({
     required String id,
     required String name,
     required String address,
+    required String phoneNumber,
     String logo = '',
   }) async {
     await _branches.doc(id).update({
       'branch_name': name.trim(),
       'branch_address': address.trim(),
       'branch_logo': logo.trim(),
+      'phone_number': phoneNumber.trim(),
     });
   }
+
   Future<void> updateBranchStatus({
     required String id,
     required bool status,
@@ -73,7 +80,8 @@ class BranchService {
       'branch_status': status,
     });
   }
-   Future<String> prepareLogo(
+
+  Future<String> prepareLogo(
     XFile image, {
     Uint8List? imageBytes,
   }) async {
@@ -99,7 +107,7 @@ class BranchService {
     final String mime = conTransparencia ? 'image/png' : 'image/jpeg';
     return 'data:$mime;base64,${base64Encode(output)}';
   }
-  
+
   Stream<List<Map<String, dynamic>>> watchBranches() {
     return _branches.snapshots().map((snapshot) {
       return snapshot.docs.map((doc) {

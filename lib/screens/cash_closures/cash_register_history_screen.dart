@@ -754,13 +754,7 @@ Widget _periodSelector() {
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _labeled(
-              'Período',
-              SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: _periodSelector(),
-              ),
-            ),
+            _labeled('Período', _periodSelector()),
             const SizedBox(height: 14),
             if (width >= 600)
               Row(
@@ -1183,10 +1177,12 @@ Widget _periodSelector() {
                             padding:
                                 const EdgeInsets.fromLTRB(12, 12, 8, 12),
                             child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              crossAxisAlignment: CrossAxisAlignment.center,
                               children: [
                                 Text(
                                   label,
+                                  textAlign: TextAlign.center,
                                   style: const TextStyle(
                                     color: _kBlack,
                                     fontSize: 13,
@@ -1194,20 +1190,19 @@ Widget _periodSelector() {
                                   ),
                                 ),
                                 const SizedBox(height: 4),
-                                Center(
-                                  child: Text(
-                                    value,
-                                    textAlign: TextAlign.center,
-                                    style: TextStyle(
-                                      color: color,
-                                      fontSize: 25,
-                                      fontWeight: FontWeight.w800,
-                                    ),
+                                 Text(
+                                  value,
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    color: color,
+                                    fontSize: 25,
+                                    fontWeight: FontWeight.w800,
                                   ),
                                 ),
                                 const SizedBox(height: 2),
                                 Text(
                                   note,
+                                  textAlign: TextAlign.center,
                                   style: const TextStyle(
                                     color: _kSoftGray,
                                     fontSize: 11,
@@ -1881,52 +1876,53 @@ Widget _pageButton(
   );
 }
   Widget _pagination(int total, int totalPages, int start, int end) {
-    final canPrev = _page > 0;
-    final canNext = _page < totalPages - 1;
-    const visible = 5;
-    final maxStart = totalPages > visible ? totalPages - visible : 0;
-    final first = (_page - 2).clamp(0, maxStart).toInt();
-    final last =
-        (first + visible) < totalPages ? first + visible : totalPages;
-    return Wrap(
-      alignment: WrapAlignment.spaceBetween,
-      crossAxisAlignment: WrapCrossAlignment.center,
-      spacing: 12,
-      runSpacing: 12,
-      children: [
-        Text(
+  final canPrev = _page > 0;
+  final canNext = _page < totalPages - 1;
+  const visible = 5;
+
+  final maxStart = totalPages > visible ? totalPages - visible : 0;
+  final first = (_page - 2).clamp(0, maxStart).toInt();
+  final last =
+      (first + visible) < totalPages ? first + visible : totalPages;
+
+  return Row(
+    children: [
+      Expanded(
+        child: Text(
           total == 0
               ? 'Mostrando 0 cortes de caja'
               : 'Mostrando ${start + 1} - $end de $total cortes de caja',
-          style: const TextStyle(color: _kSoftGray, fontSize: 13),
+          style: const TextStyle(
+            color: _kSoftGray,
+            fontSize: 13,
+          ),
         ),
-        Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _pageButton(
-              '‹',
-              big: true,
-              onTap: canPrev ? () => setState(() => _page--) : null,
-            ),
-            for (int i = first; i < last; i++) ...[
-              const SizedBox(width: 5),
-              _pageButton(
-                '${i + 1}',
-                selected: i == _page,
-                onTap: () => setState(() => _page = i),
-              ),
-            ],
+      ),
+      Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _pageButton(
+            '‹',
+            onTap: canPrev ? () => setState(() => _page--) : null,
+          ),
+          for (int i = first; i < last; i++) ...[
             const SizedBox(width: 5),
             _pageButton(
-              '›',
-              big: true,
-              onTap: canNext ? () => setState(() => _page++) : null,
+              '${i + 1}',
+              selected: i == _page,
+              onTap: () => setState(() => _page = i),
             ),
           ],
-        ),
-      ],
-    );
-  }
+          const SizedBox(width: 5),
+          _pageButton(
+            '›',
+            onTap: canNext ? () => setState(() => _page++) : null,
+          ),
+        ],
+      ),
+    ],
+  );
+}
 
   Future<void> _openClosureDetails(_ClosureView closure) async {
     final screenSize = MediaQuery.sizeOf(context);

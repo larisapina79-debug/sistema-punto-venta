@@ -1,68 +1,64 @@
 import 'dart:convert';
 import 'dart:typed_data';
-
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../services/branch_service.dart';
-import '../../widgets/app_header.dart';
-import '../../widgets/edit.dart';
 import '../../widgets/save.dart';
 import '../../widgets/cancel.dart';
-import '../../widgets/status.dart';
 
 const Color _green = Color(0xFF0F6B1F);
 const Color _red = Color(0xFFF4512A);
 const Color _greenSoft = Color(0xFFE8F5E9);
-const Color _borderGrey = Color(0xFFBDBDBD);
-
+const Color _borderGrey = Color(0xFFE0E0E0);
+const Color _accent = Color.fromARGB(255, 99, 183, 196);
 class BranchDetailScreen extends StatefulWidget {
   final String branchId;
   const BranchDetailScreen({
     super.key,
     required this.branchId,
   });
+
   @override
   State<BranchDetailScreen> createState() =>
       _BranchDetailScreenState();
 }
-
 class _BranchDetailScreenState extends State<BranchDetailScreen> {
   final BranchService _service = BranchService();
   final ImagePicker _picker = ImagePicker();
-  final TextEditingController nombreController =
-      TextEditingController();
-  final TextEditingController direccionController =
-      TextEditingController();
-
+  final TextEditingController nombreController =  TextEditingController();
+  final TextEditingController direccionController =  TextEditingController();
+  final TextEditingController telefonoController = TextEditingController();
   String _logoUrl = '';
   String _nombreOriginal = '';
   String _direccionOriginal = '';
+  String _telefonoOriginal = '';
   XFile? _nuevoLogo;
   Uint8List? _nuevoLogoBytes;
-  bool _activo = true;
+  bool _quitarLogo = false;
   bool _editando = false;
   bool _cargando = true;
-  String? _mensajeEstado;
-  bool _mostrandoMensajeEstado = false;
   String? _mensajeGeneral;
   bool _mostrandoMensajeGeneral = false;
-  bool _mensajeExito = true;
+  bool _mensajeExito = false;
 
   @override
   void initState() {
     super.initState();
     _cargarSucursal();
   }
+
   @override
   void dispose() {
     nombreController.dispose();
     direccionController.dispose();
+    telefonoController.dispose();
     super.dispose();
   }
+
   Future<void> _cargarSucursal() async {
-    setState(() {
-      _cargando = true;
-    });
+    if (mounted) {
+      setState(() => _cargando = true);
+    }
     try {
       final sucursal =
           await _service.getBranchById(widget.branchId);
@@ -75,26 +71,31 @@ class _BranchDetailScreenState extends State<BranchDetailScreen> {
           (sucursal['branch_name'] ?? '').toString();
       direccionController.text =
           (sucursal['branch_address'] ?? '').toString();
-      _logoUrl =
-          (sucursal['branch_logo'] ?? '').toString();
-      _activo = sucursal['branch_status'] == true;
+      telefonoController.text =
+          (sucursal['phone_number'] ?? '').toString();
+      _logoUrl = (sucursal['branch_logo'] ?? '').toString();
       _nombreOriginal = nombreController.text;
       _direccionOriginal = direccionController.text;
+      _telefonoOriginal = telefonoController.text;
     } catch (e) {
       if (mounted) {
         _mostrarMensaje('Error al cargar la sucursal: $e');
       }
     } finally {
       if (mounted) {
-        setState(() {
-          _cargando = false;
-        });
+        setState(() => _cargando = false);
       }
     }
   }
+
+  void _regresar() {
+    Navigator.of(context).maybePop();
+  }
+
   void _editar() {
     setState(() {
       _editando = true;
+      _quitarLogo = false;
       _mensajeGeneral = null;
       _mostrandoMensajeGeneral = false;
     });
@@ -104,35 +105,32 @@ class _BranchDetailScreenState extends State<BranchDetailScreen> {
     setState(() {
       nombreController.text = _nombreOriginal;
       direccionController.text = _direccionOriginal;
+      telefonoController.text = _telefonoOriginal;
       _nuevoLogo = null;
       _nuevoLogoBytes = null;
+      _quitarLogo = false;
       _editando = false;
     });
-
-    _cargarSucursal();
   }
 
   Future<void> _guardar() async {
     final nombre = nombreController.text.trim();
     final direccion = direccionController.text.trim();
+    final telefono = telefonoController.text.trim();
     if (nombre.isEmpty) {
-      _mostrarMensaje(
-        'Ingresa el nombre de la sucursal.',
-      );
+      _mostrarMensaje('Ingresa el nombre de la sucursal.');
       return;
     }
     if (direccion.isEmpty) {
-      _mostrarMensaje(
-        'Ingresa la dirección de la sucursal.',
-      );
+      _mostrarMensaje('Ingresa la dirección de la sucursal.');
       return;
     }
-    setState(() {
-      _cargando = true;
-    });
+    setState(() => _cargando = true);
     try {
-      String logoFinal = _logoUrl;
-      if (_nuevoLogo != null && _nuevoLogoBytes != null) {
+      String logoFinal = _quitarLogo ? '' : _logoUrl;
+      if (!_quitarLogo &&
+          _nuevoLogo != null &&
+          _nuevoLogoBytes != null) {
         logoFinal = await _service.prepareLogo(
           _nuevoLogo!,
           imageBytes: _nuevoLogoBytes,
@@ -142,63 +140,32 @@ class _BranchDetailScreenState extends State<BranchDetailScreen> {
         id: widget.branchId,
         name: nombre,
         address: direccion,
+        phoneNumber: telefono,
         logo: logoFinal,
       );
       if (!mounted) return;
       _nombreOriginal = nombre;
       _direccionOriginal = direccion;
+      _telefonoOriginal = telefono;
+
       setState(() {
         _logoUrl = logoFinal;
         _nuevoLogo = null;
         _nuevoLogoBytes = null;
+        _quitarLogo = false;
         _editando = false;
         _cargando = false;
       });
+
       _mostrarMensaje(
         'Sucursal actualizada correctamente.',
         exito: true,
       );
     } catch (e) {
       if (!mounted) return;
-      setState(() {
-        _cargando = false;
-      });
-      _mostrarMensaje('Error al guardar los cambios: $e');
-    }
-  }
 
-  Future<void> _cambiarEstado(bool nuevoEstado) async {
-    try {
-      await _service.updateBranchStatus(
-        id: widget.branchId,
-        status: nuevoEstado,
-      );
-      if (!mounted) return;
-      setState(() {
-        _activo = nuevoEstado;
-        _mensajeEstado = nuevoEstado
-            ? 'Sucursal activada correctamente.'
-            : 'Sucursal desactivada correctamente.';
-        _mostrandoMensajeEstado = true;
-      });
-      Future.delayed(const Duration(milliseconds: 2500), () {
-        if (!mounted) return;
-        setState(() {
-          _mostrandoMensajeEstado = false;
-        });
-      });
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _mensajeEstado = 'No se pudo cambiar el estado.';
-        _mostrandoMensajeEstado = true;
-      });
-      Future.delayed(const Duration(milliseconds: 2500), () {
-        if (!mounted) return;
-        setState(() {
-          _mostrandoMensajeEstado = false;
-        });
-      });
+      setState(() => _cargando = false);
+      _mostrarMensaje('Error al guardar los cambios: $e');
     }
   }
 
@@ -207,20 +174,50 @@ class _BranchDetailScreenState extends State<BranchDetailScreen> {
     try {
       final XFile? imagen = await _picker.pickImage(
         source: ImageSource.gallery,
-        imageQuality: 95,
-        maxWidth: 1600,
-        maxHeight: 1600,
       );
       if (imagen == null || !mounted) return;
+      if (!imagen.name.toLowerCase().endsWith('.png')) {
+        _mostrarMensaje('Solo se permiten imágenes PNG.');
+        return;
+      }
       final Uint8List bytes = await imagen.readAsBytes();
       if (!mounted) return;
+      const pngSignature = <int>[
+        0x89,
+        0x50,
+        0x4E,
+        0x47,
+        0x0D,
+        0x0A,
+        0x1A,
+        0x0A,
+      ];
+      final bool esPng = bytes.length >= 8 &&
+          bytes.take(8).toList().toString() ==
+              pngSignature.toString();
+      if (!esPng) {
+        _mostrarMensaje(
+          'El archivo seleccionado no es un PNG válido.',
+        );
+        return;
+      }
+
       setState(() {
         _nuevoLogo = imagen;
         _nuevoLogoBytes = bytes;
+        _quitarLogo = false;
       });
     } catch (e) {
       _mostrarMensaje('Error al seleccionar la imagen: $e');
     }
+  }
+
+  void _eliminarLogo() {
+    setState(() {
+      _quitarLogo = true;
+      _nuevoLogo = null;
+      _nuevoLogoBytes = null;
+    });
   }
 
   void _mostrarMensaje(
@@ -237,10 +234,7 @@ class _BranchDetailScreenState extends State<BranchDetailScreen> {
 
     Future.delayed(const Duration(milliseconds: 2500), () {
       if (!mounted) return;
-
-      setState(() {
-        _mostrandoMensajeGeneral = false;
-      });
+      setState(() => _mostrandoMensajeGeneral = false);
     });
   }
 
@@ -251,12 +245,12 @@ class _BranchDetailScreenState extends State<BranchDetailScreen> {
     return Container(
       width: double.infinity,
       margin: const EdgeInsets.only(bottom: 18),
-      padding: const EdgeInsets.all(13),
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: _mensajeExito
             ? _greenSoft
             : const Color(0xFFFFEBEE),
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(8),
         border: Border.all(
           color: _mensajeExito
               ? const Color(0xFFB7DDBA)
@@ -271,7 +265,7 @@ class _BranchDetailScreenState extends State<BranchDetailScreen> {
                 : Icons.error_outline,
             color: _mensajeExito ? _green : _red,
           ),
-          const SizedBox(width: 9),
+          const SizedBox(width: 10),
           Expanded(
             child: Text(
               _mensajeGeneral ?? '',
@@ -280,6 +274,31 @@ class _BranchDetailScreenState extends State<BranchDetailScreen> {
                 fontSize: 13,
                 fontWeight: FontWeight.w500,
               ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _iconoSinImagen() {
+    return const Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            Icons.image_outlined,
+            size: 42,
+            color: Color(0xFF9E9E9E),
+          ),
+          SizedBox(height: 6),
+          Text(
+            '---',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: Color(0xFF9E9E9E),
+              fontSize: 18,
+              fontWeight: FontWeight.w600,
             ),
           ),
         ],
@@ -303,7 +322,7 @@ class _BranchDetailScreenState extends State<BranchDetailScreen> {
           height: double.infinity,
           filterQuality: FilterQuality.high,
           gaplessPlayback: true,
-         errorBuilder: (_, _, _) => vacio,
+          errorBuilder: (_, _, _) => vacio,
         );
       } catch (_) {
         return vacio;
@@ -320,49 +339,40 @@ class _BranchDetailScreenState extends State<BranchDetailScreen> {
     );
   }
 
-  String _inicial() {
-    final String nombre = nombreController.text.trim();
-    return nombre.isEmpty ? 'S' : nombre[0].toUpperCase();
-  }
+  bool get _tieneLogo =>
+      !_quitarLogo &&
+      (_nuevoLogoBytes != null || _logoUrl.trim().isNotEmpty);
 
-  Widget _logo({double size = 68}) {
-    final Widget vacio = Center(
-      child: Text(
-        _inicial(),
-        style: TextStyle(
-          color: _green,
-          fontSize: size * 0.42,
-          fontWeight: FontWeight.w600,
-        ),
-      ),
-    );
+  Widget _logoEncabezado() {
+    final Widget contenido = !_tieneLogo
+        ? _iconoSinImagen()
+        : _nuevoLogoBytes != null
+            ? Image.memory(
+                _nuevoLogoBytes!,
+                width: double.infinity,
+                height: double.infinity,
+                fit: BoxFit.cover,
+                gaplessPlayback: true,
+              )
+            : _imagenLogo(_logoUrl, _iconoSinImagen());
+
     return Container(
-      width: size,
-      height: size,
-      clipBehavior: Clip.antiAlias,
+      width: 120,
+      height: 90,
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(15),
-        border: Border.all(
-          color: const Color(0xFFD5E8D7),
-        ),
+        color: const Color(0xFFF7F8F9),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: _borderGrey),
       ),
-      child: _nuevoLogoBytes != null
-          ? Image.memory(
-              _nuevoLogoBytes!,
-              fit: BoxFit.cover,
-              width: double.infinity,
-              height: double.infinity,
-              filterQuality: FilterQuality.high,
-              gaplessPlayback: true,
-            )
-          : _imagenLogo(_logoUrl, vacio),
+      clipBehavior: Clip.antiAlias,
+      child: contenido,
     );
   }
 
   Widget _campo({
     required String titulo,
     required TextEditingController controller,
+    int maxLines = 1,
   }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -370,47 +380,49 @@ class _BranchDetailScreenState extends State<BranchDetailScreen> {
         Text(
           titulo,
           style: const TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w500,
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            color: Color(0xFF424242),
           ),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 7),
         TextField(
           controller: controller,
           enabled: _editando,
+          maxLines: maxLines,
           textCapitalization: TextCapitalization.sentences,
+          style: const TextStyle(
+            fontSize: 14,
+            color: Color(0xFF212121),
+          ),
           decoration: InputDecoration(
             filled: true,
             fillColor: _editando
                 ? Colors.white
-                : const Color(0xFFF8F8F8),
+                : const Color(0xFFF7F8F9),
             contentPadding: const EdgeInsets.symmetric(
               horizontal: 14,
-              vertical: 13,
+              vertical: 14,
             ),
             border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(10),
-              borderSide: const BorderSide(
-                color: _borderGrey,
-              ),
+              borderRadius: BorderRadius.circular(9),
+              borderSide: const BorderSide(color: _borderGrey),
             ),
             enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(10),
-              borderSide: const BorderSide(
-                color: _borderGrey,
-              ),
+              borderRadius: BorderRadius.circular(9),
+              borderSide: const BorderSide(color: _borderGrey),
             ),
             disabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: BorderRadius.circular(9),
               borderSide: const BorderSide(
-                color: _borderGrey,
+                color: Color(0xFFE0E0E0),
               ),
             ),
             focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: BorderRadius.circular(9),
               borderSide: const BorderSide(
-                color: _green,
-                width: 1.5,
+                color: _accent,
+                width: 1.8,
               ),
             ),
           ),
@@ -419,105 +431,189 @@ class _BranchDetailScreenState extends State<BranchDetailScreen> {
     );
   }
 
-  Widget _campoLogo() {
-    final bool tieneLogo =
-        _nuevoLogoBytes != null || _logoUrl.trim().isNotEmpty;
-    final Widget vacio = const Center(
-      child: Text(
-        'Sin logo',
+Widget _campoLogo() {
+  final Widget imagen = !_tieneLogo
+      ? _iconoSinImagen()
+      : _nuevoLogoBytes != null
+          ? Image.memory(
+              _nuevoLogoBytes!,
+              fit: BoxFit.cover,
+              width: double.infinity,
+              height: double.infinity,
+              gaplessPlayback: true,
+            )
+          : _imagenLogo(_logoUrl, _iconoSinImagen());
+  return Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      const Text(
+        'Imagen de la sucursal',
         style: TextStyle(
-          color: Color(0xFF9E9E9E),
-          fontSize: 16,
-          fontWeight: FontWeight.w500,
+          fontSize: 13,
+          fontWeight: FontWeight.w600,
+          color: Color(0xFF424242),
         ),
       ),
-    );
-    final Widget imagen = _nuevoLogoBytes != null
-        ? Image.memory(
-            _nuevoLogoBytes!,
-            fit: BoxFit.cover,
-            width: double.infinity,
-            height: double.infinity,
-            filterQuality: FilterQuality.high,
-            gaplessPlayback: true,
-          )
-        : _imagenLogo(_logoUrl, vacio);
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text(
-          'Logo de la sucursal',
-          style: TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w500,
-          ),
+      const SizedBox(height: 7),
+      CustomPaint(
+        foregroundPainter: _BordeDiscontinuo(
+          color: _accent,
+          radio: 9,
         ),
-        const SizedBox(height: 10),
-        InkWell(
-          onTap: _editando ? _cambiarLogo : null,
-          borderRadius: BorderRadius.circular(16),
-          child: AspectRatio(
-            aspectRatio: 16 / 9,
-            child: CustomPaint(
-              foregroundPainter: _DashedBorderPainter(
-                color: _editando ? _green : _borderGrey,
-              ),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(16),
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    imagen,
-                    if (_editando)
-                      Positioned(
-                        left: 0,
-                        right: 0,
-                        bottom: 0,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            vertical: 8,
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(9),
+          child: Container(
+            height: 210,
+            width: double.infinity,
+            color: const Color(0xFFF7F8F9),
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                Positioned.fill(child: imagen),
+                if (_editando && _tieneLogo)
+                  Positioned.fill(
+                    child: Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        onTap: _cambiarLogo,
+                      ),
+                    ),
+                  ),
+                if (_editando && _tieneLogo)
+                  Positioned(
+                    top: 8,
+                    right: 8,
+                    child: Material(
+                      color: Colors.white,
+                      shape: const CircleBorder(),
+                      elevation: 2,
+                      child: IconButton(
+                        tooltip: 'Quitar imagen',
+                        onPressed: _eliminarLogo,
+                        icon: const Icon(
+                          Icons.delete_outline,
+                          color: _red,
+                        ),
+                      ),
+                    ),
+                  ),
+                if (_editando && !_tieneLogo)
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    child: Material(
+                      color: Colors.black54,
+                      child: InkWell(
+                        onTap: _cambiarLogo,
+                        child: const Padding(
+                          padding: EdgeInsets.symmetric(
+                            vertical: 10,
+                            horizontal: 8,
                           ),
-                          color: Colors.black54,
-                          child: Text(
-                            tieneLogo
-                                ? 'Toca para cambiar la imagen'
-                                : 'Toca para agregar una imagen',
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 14,
-                            ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                Icons.add_photo_alternate_outlined,
+                                color: Colors.white,
+                                size: 18,
+                              ),
+                              SizedBox(width: 8),
+                              Text(
+                                'Agregar imagen PNG',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                       ),
-                  ],
-                ),
-              ),
+                    ),
+                  ),
+              ],
             ),
           ),
         ),
-      ],
-    );
-  }
-
-  Widget _botonVolver() {
-    return InkWell(
-      onTap: () => Navigator.pop(context),
-      customBorder: const CircleBorder(),
-      child: Container(
-        width: 40,
-        height: 40,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          border: Border.all(color: Colors.black26),
-        ),
-        child: const Icon(
-          Icons.arrow_back,
-          color: _green,
-          size: 22,
-        ),
       ),
+      if (!_tieneLogo) ...[
+        const SizedBox(height: 8),
+        const Row(
+          children: [
+            Icon(
+              Icons.info_outline,
+              size: 15,
+              color: Color(0xFF757575),
+            ),
+            SizedBox(width: 6),
+            Text(
+              'Formato permitido: PNG',
+              style: TextStyle(
+                color: Color(0xFF757575),
+                fontSize: 12,
+              ),
+            ),
+          ],
+        ),
+      ],
+    ],
+  );
+}
+
+  Widget _encabezado(bool esMovil) {
+    return Column(
+      children: [
+        Align(
+          alignment: Alignment.centerLeft,
+          child: TextButton.icon(
+            onPressed: _regresar,
+            style: TextButton.styleFrom(
+              foregroundColor: _accent,
+              padding: const EdgeInsets.symmetric(
+                horizontal: 4,
+                vertical: 6,
+              ),
+            ),
+            icon: const Icon(
+              Icons.arrow_back_rounded,
+              size: 20,
+            ),
+            label: const Text(
+              'Regresar',
+              style: TextStyle(fontWeight: FontWeight.w600),
+            ),
+          ),
+        ),
+        const SizedBox(height: 6),
+        _logoEncabezado(),
+        const SizedBox(height: 12),
+        const Text(
+          'Detalles de sucursal',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: Color(0xFF757575),
+            fontSize: 13,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+        const SizedBox(height: 5),
+        Text(
+          nombreController.text.trim().isEmpty
+              ? 'Sucursal'
+              : nombreController.text.trim(),
+          textAlign: TextAlign.center,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            fontSize: esMovil ? 19 : 23,
+            fontWeight: FontWeight.w700,
+            color: const Color(0xFF212121),
+          ),
+        ),
+      ],
     );
   }
 
@@ -526,6 +622,7 @@ class _BranchDetailScreenState extends State<BranchDetailScreen> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Expanded(
+          flex: 6,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
@@ -533,33 +630,47 @@ class _BranchDetailScreenState extends State<BranchDetailScreen> {
                 titulo: 'Nombre de la sucursal',
                 controller: nombreController,
               ),
-              const SizedBox(height: 24),
+              const SizedBox(height: 18),
               _campo(
                 titulo: 'Dirección',
                 controller: direccionController,
               ),
+              const SizedBox(height: 18),
+              _campo(
+                titulo: 'Número de teléfono',
+                controller: telefonoController,
+              ),
             ],
           ),
         ),
-        const SizedBox(width: 55),
-        Expanded(child: _campoLogo()),
+        const SizedBox(width: 24),
+        Expanded(
+          flex: 4,
+          child: _campoLogo(),
+        ),
       ],
     );
   }
 
   Widget _formularioMovil() {
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         _campo(
           titulo: 'Nombre de la sucursal',
           controller: nombreController,
         ),
-        const SizedBox(height: 20),
+        const SizedBox(height: 16),
         _campo(
           titulo: 'Dirección',
           controller: direccionController,
         ),
-        const SizedBox(height: 24),
+        const SizedBox(height: 16),
+        _campo(
+          titulo: 'Número de teléfono',
+          controller: telefonoController,
+        ),
+        const SizedBox(height: 20),
         _campoLogo(),
       ],
     );
@@ -569,168 +680,144 @@ class _BranchDetailScreenState extends State<BranchDetailScreen> {
   Widget build(BuildContext context) {
     final ancho = MediaQuery.of(context).size.width;
     final esMovil = ancho < 700;
-    return Scaffold(
-      backgroundColor: Colors.white,
-      appBar: AppHeader(
-        currentRoute: '/sucursales',
-      ),
-      drawer: AppDrawer(
-        currentRoute: '/sucursales',
-      ),
-      body: SafeArea(
-        child: _cargando
-            ? const Center(
-                child: CircularProgressIndicator(
-                  color: _green,
-                ),
-              )
-            : SingleChildScrollView(
-                padding: EdgeInsets.symmetric(
-                  horizontal: esMovil ? 18 : 55,
-                  vertical: 28,
-                ),
-                child: Center(
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(
-                      maxWidth: 1000,
-                    ),
-                    child: Column(
-                      crossAxisAlignment:
-                          CrossAxisAlignment.stretch,
-                      children: [
-                        Align(
-                          alignment: Alignment.centerLeft,
-                          child: _botonVolver(),
-                        ),
-                        const SizedBox(height: 24),
-                        Row(
-                          crossAxisAlignment:
-                              CrossAxisAlignment.start,
-                          children: [
-                            _logo(size: esMovil ? 58 : 68),
-                            const SizedBox(width: 14),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment:
-                                    CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    nombreController.text.isEmpty
-                                        ? 'Sucursal'
-                                        : nombreController.text,
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(
-                                      fontSize:
-                                          esMovil ? 17 : 20,
-                                      fontWeight: FontWeight.w500,
-                                      color:
-                                          const Color(0xFF212121),
-                                    ),
-                                  ),
-                                  const SizedBox(height: 8),
-                                  StatusSwitch(
-                                    activo: _activo,
-                                    mensajeEstado: _mensajeEstado,
-                                    mostrandoMensajeEstado:
-                                        _mostrandoMensajeEstado,
-                                    puedeCambiar: !_editando,
-                                    onChanged: _cambiarEstado,
-                                  ),
-                                ],
-                              ),
-                            ),
-                            if (!esMovil && !_editando)
-                              EditButton(
-                                onPressed: _editar,
-                              ),
-                          ],
-                        ),
-                        if (esMovil && !_editando) ...[
-                          const SizedBox(height: 16),
-                          SizedBox(
-                            width: double.infinity,
-                            child: EditButton(
-                              onPressed: _editar,
-                            ),
-                          ),
-                        ],
-                        const SizedBox(height: 28),
-                        _mensaje(),
-                        const Center(
-                          child: Text(
-                            'Información',
-                            style: TextStyle(
-                              fontSize: 25,
-                              fontWeight: FontWeight.w500,
-                              color: Color(0xFF212121),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 32),
-                        if (esMovil)
-                          _formularioMovil()
-                        else
-                          _formularioDesktop(),
-                        if (_editando) ...[
-                          const SizedBox(height: 32),
-                          if (esMovil)
-                            Column(
-                              children: [
-                                SizedBox(
-                                  width: double.infinity,
-                                  height: 44,
-                                  child: GuardarButton(
-                                    onPressed: _guardar,
-                                  ),
-                                ),
-                                const SizedBox(height: 12),
-                                SizedBox(
-                                  width: double.infinity,
-                                  height: 44,
-                                  child: CancelButton(
-                                    onPressed: _cancelar,
-                                  ),
-                                ),
-                              ],
-                            )
-                          else
-                            Row(
-                              mainAxisAlignment:
-                                  MainAxisAlignment.center,
-                              children: [
-                                SizedBox(
-                                  width: 180,
-                                  height: 44,
-                                  child: GuardarButton(
-                                    onPressed: _guardar,
-                                  ),
-                                ),
-                                const SizedBox(width: 14),
-                                SizedBox(
-                                  width: 180,
-                                  height: 44,
-                                  child: CancelButton(
-                                    onPressed: _cancelar,
-                                  ),
-                                ),
-                              ],
-                            ),
-                        ],
-                      ],
+
+    return Material(
+      color: Colors.white,
+      child: _cargando
+          ? const Center(
+              child: CircularProgressIndicator(color: _accent),
+            )
+          : SingleChildScrollView(
+              padding: EdgeInsets.fromLTRB(
+                esMovil ? 18 : 28,
+                14,
+                esMovil ? 18 : 28,
+                esMovil ? 18 : 24,
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _encabezado(esMovil),
+                  const SizedBox(height: 20),
+                  const Divider(
+                    color: Color(0xFFEEEEEE),
+                    height: 1,
+                  ),
+                  const SizedBox(height: 18),
+                  _mensaje(),
+                  const Center(
+                    child: Text(
+                      'Información de la sucursal',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFF212121),
+                      ),
                     ),
                   ),
-                ),
+                  const SizedBox(height: 18),
+                  if (esMovil)
+                    _formularioMovil()
+                  else
+                    _formularioDesktop(),
+                  if (!_editando) ...[
+                    const SizedBox(height: 20),
+                    Center(
+                      child: SizedBox(
+                        width: 150,
+                        height: 46,
+                        child: OutlinedButton.icon(
+                          onPressed: _editar,
+                          icon: const Icon(
+                            Icons.edit_outlined,
+                            size: 18,
+                          ),
+                          label: const Text('Editar'),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor:
+                                const Color(0xFF212121),
+                            backgroundColor:
+                                const Color(0xFFEAF7F9),
+                            side: const BorderSide(
+                              color: _accent,
+                              width: 1.6,
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius:
+                                  BorderRadius.circular(14),
+                            ),
+                            textStyle: const TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                  if (_editando) ...[
+                    const SizedBox(height: 24),
+                    const Divider(
+                      color: Color(0xFFEEEEEE),
+                      height: 1,
+                    ),
+                    const SizedBox(height: 20),
+                    if (esMovil)
+                      Column(
+                        crossAxisAlignment:
+                            CrossAxisAlignment.stretch,
+                        children: [
+                          SizedBox(
+                            height: 44,
+                            child: GuardarButton(
+                              onPressed: _guardar,
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          SizedBox(
+                            height: 44,
+                            child: CancelButton(
+                              onPressed: _cancelar,
+                            ),
+                          ),
+                        ],
+                      )
+                    else
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          SizedBox(
+                            width: 150,
+                            height: 44,
+                            child: CancelButton(
+                              onPressed: _cancelar,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          SizedBox(
+                            width: 150,
+                            height: 44,
+                            child: GuardarButton(
+                              onPressed: _guardar,
+                            ),
+                          ),
+                        ],
+                      ),
+                  ],
+                ],
               ),
-      ),
+            ),
     );
   }
 }
-
-class _DashedBorderPainter extends CustomPainter {
+class _BordeDiscontinuo extends CustomPainter {
   final Color color;
-  const _DashedBorderPainter({required this.color});
-  static const double _radius = 16;
+  final double radio;
+  _BordeDiscontinuo({
+    required this.color,
+    this.radio = 9,
+  });
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -738,26 +825,35 @@ class _DashedBorderPainter extends CustomPainter {
       ..color = color
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1.5;
+    final rect = Offset.zero & size;
     final path = Path()
       ..addRRect(
         RRect.fromRectAndRadius(
-          Offset.zero & size,
-          const Radius.circular(_radius),
+          rect.deflate(0.75),
+          Radius.circular(radio),
         ),
       );
+    const double largo = 7;
+    const double espacio = 5;
     for (final metric in path.computeMetrics()) {
-      double distance = 0;
-      while (distance < metric.length) {
+      double distancia = 0;
+      while (distancia < metric.length) {
+        final fin = (distancia + largo).clamp(
+          0.0,
+          metric.length,
+        );
         canvas.drawPath(
-          metric.extractPath(distance, distance + 6),
+          metric.extractPath(distancia, fin),
           paint,
         );
-        distance += 10;
+        distancia += largo + espacio;
       }
     }
   }
 
   @override
-  bool shouldRepaint(covariant _DashedBorderPainter old) =>
-      old.color != color;
+  bool shouldRepaint(covariant _BordeDiscontinuo oldDelegate) {
+    return oldDelegate.color != color ||
+        oldDelegate.radio != radio;
+  }
 }

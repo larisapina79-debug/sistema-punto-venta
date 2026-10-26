@@ -165,8 +165,7 @@ class AppHeader extends StatelessWidget implements PreferredSizeWidget {
       ),
       actions: [
         _UserMenu(
-          userName:
-              Session.user?.userName ?? userName,
+          userName: Session.user?.nameUser ?? 'Usuario',
           compact: isMobile,
         ),
         SizedBox(
@@ -290,6 +289,7 @@ class _UserMenu extends StatelessWidget {
         const PopupMenuItem(
           value: 'profile',
           child: Row(
+            mainAxisSize: MainAxisSize.min,
             children: [
               Icon(
                 Icons.person_outline,
@@ -297,6 +297,7 @@ class _UserMenu extends StatelessWidget {
                 color: Colors.black87,
               ),
               SizedBox(width: 10),
+              
               Text(
                 'Perfil',
                 style: TextStyle(
@@ -341,23 +342,35 @@ class _UserMenu extends StatelessWidget {
             width: 1.2,
           ),
           borderRadius: BorderRadius.circular(22),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.person,
-              color: kBlueUser,
-              size: compact ? 21 : 26,
-            ),
-            const SizedBox(width: 3),
-            Icon(
-              Icons.keyboard_arrow_down,
+        ),   
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.person,
+            color: kBlueUser,
+            size: compact ? 21 : 26,
+          ),
+          const SizedBox(width: 7),
+          Text(
+            userName,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
               color: Colors.white,
-              size: compact ? 17 : 20,
+              fontSize: compact ? 12 : 14,
+              fontWeight: FontWeight.w500,
             ),
-          ],
-        ),
+          ),
+          const SizedBox(width: 3),
+          Icon(
+            Icons.keyboard_arrow_down,
+            color: Colors.white,
+            size: compact ? 17 : 20,
+          ),
+        ],
+      ),
+
       ),
     );
   }
@@ -468,9 +481,14 @@ class _DrawerItem extends StatelessWidget {
         ? kGreen
         : Colors.white;
     return InkWell(
-     onTap: () {
+    onTap: () {
+  if (selected) {
+    Navigator.pop(context);
+    return;
+  }
+  Navigator.pop(context);
   if (item.route == '/cortes') {
-    Navigator.push(
+    Navigator.pushReplacement(
       context,
       MaterialPageRoute(
         builder: (_) => const CashRegisterHistoryScreen(),
@@ -478,12 +496,10 @@ class _DrawerItem extends StatelessWidget {
     );
     return;
   }
-  if (!selected) {
-    Navigator.pushReplacementNamed(
-      context,
-      item.route,
-    );
-  }
+  Navigator.pushReplacementNamed(
+    context,
+    item.route,
+  );
 },
       child: Container(
         height: 52,

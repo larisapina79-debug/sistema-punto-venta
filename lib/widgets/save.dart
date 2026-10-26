@@ -1,7 +1,8 @@
-
 import 'package:flutter/material.dart';
 
-const _green = Color(0xFF0F6B1F);
+const Color _kGreen = Color.fromARGB(255, 99, 183, 196);
+const Color _kSoftBg = Color(0xFFECF6F8);
+const Color _kPressedBg = Color(0xFFD9E2E4);
 
 class GuardarButton extends StatelessWidget {
   final VoidCallback? onPressed;
@@ -28,38 +29,34 @@ class GuardarButton extends StatelessWidget {
           backgroundColor: WidgetStateProperty.resolveWith<Color>(
             (states) {
               if (states.contains(WidgetState.disabled)) {
-                return _green.withValues(alpha: 0.55);
+                return _kSoftBg.withValues(alpha: 0.6);
               }
-
-              if (states.contains(WidgetState.pressed)) {
-                return const Color(0xFF0A5217);
+              if (states.contains(WidgetState.pressed) ||
+                  states.contains(WidgetState.hovered)) {
+                return _kPressedBg;
               }
-
-              return _green;
+              return _kSoftBg;
             },
           ),
-          foregroundColor: const WidgetStatePropertyAll(
-            Colors.white,
-          ),
-          elevation: WidgetStateProperty.resolveWith<double>(
-            (states) {
-              return states.contains(WidgetState.pressed) ? 1 : 3;
-            },
-          ),
-          shadowColor: WidgetStatePropertyAll(
-            Colors.black.withValues(alpha: 0.18),
-          ),
+          foregroundColor: const WidgetStatePropertyAll(Colors.black),
+          elevation: const WidgetStatePropertyAll(0),
+          shadowColor: const WidgetStatePropertyAll(Colors.transparent),
+          splashFactory: NoSplash.splashFactory,
           shape: WidgetStatePropertyAll(
             RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(10),
-              side: const BorderSide(
-                color: Color(0xFF2E9E4F),
-              ),
+              borderRadius: BorderRadius.circular(12),
             ),
           ),
-          overlayColor: WidgetStatePropertyAll(
-            Colors.white.withValues(alpha: 0.08),
+          side: WidgetStateProperty.resolveWith<BorderSide>(
+            (states) {
+              final disabled = states.contains(WidgetState.disabled);
+              return BorderSide(
+                color: disabled ? _kGreen.withValues(alpha: 0.5) : _kGreen,
+                width: 1.5,
+              );
+            },
           ),
+          overlayColor: const WidgetStatePropertyAll(Colors.transparent),
         ),
         child: loading
             ? const SizedBox(
@@ -67,18 +64,18 @@ class GuardarButton extends StatelessWidget {
                 height: 21,
                 child: CircularProgressIndicator(
                   strokeWidth: 2.3,
-                  color: Colors.white,
+                  color: _kGreen,
                 ),
               )
             : Text(
                 text,
                 style: const TextStyle(
+                  color: Colors.black,
                   fontSize: 14,
-                  fontWeight: FontWeight.w600,
+                  fontWeight: FontWeight.w700,
                 ),
               ),
       ),
     );
   }
 }
-

@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
-const _btnGreen = Color(0xFF0F6B1F);
+const Color _kGreen = Color.fromARGB(255, 99, 183, 196);
+const Color _kSoftBg = Color(0xFFECF6F8);
+const Color _kPressedBg = Color(0xFFD9E2E4);
 
 class NuevoButton extends StatelessWidget {
   final VoidCallback onPressed;
@@ -17,49 +19,35 @@ class NuevoButton extends StatelessWidget {
     return ElevatedButton(
       onPressed: onPressed,
       style: ElevatedButton.styleFrom(
-        backgroundColor: _btnGreen,
-        foregroundColor: Colors.white,
-        elevation: 3,
-        shadowColor: Colors.black.withValues(alpha: 0.20),
+        foregroundColor: Colors.black,
+        elevation: 0,
+        splashFactory: NoSplash.splashFactory,
         padding: const EdgeInsets.symmetric(
           horizontal: 20,
           vertical: 13,
         ),
+        side: const BorderSide(color: _kGreen, width: 1.5),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(12),
         ),
-        side: const BorderSide(
-          color: Color(0xFF2E9E4F),
-          width: 1,
-        ),
-        overlayColor: Colors.white.withValues(alpha: 0.08),
+      ).copyWith(
+        backgroundColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.pressed) ||
+              states.contains(WidgetState.hovered)) {
+            return _kPressedBg;
+          }
+          return _kSoftBg;
+        }),
+        overlayColor: WidgetStateProperty.all(Colors.transparent),
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 24,
-            height: 24,
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.15),
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(
-              Icons.add,
-              size: 17,
-              color: Colors.white,
-            ),
-          ),
-          const SizedBox(width: 9),
-          Text(
-            text,
-            style: const TextStyle(
-              fontSize: 15,
-              fontWeight: FontWeight.w600,
-              letterSpacing: 0.2,
-            ),
-          ),
-        ],
+      child: Text(
+        text,
+        style: const TextStyle(
+          color: Colors.black,
+          fontSize: 15,
+          fontWeight: FontWeight.w700,
+          letterSpacing: 0.2,
+        ),
       ),
     );
   }

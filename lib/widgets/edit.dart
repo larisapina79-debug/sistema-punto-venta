@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
-const _green = Color(0xFF0F6B1F);
+const Color _kGreen = Color.fromARGB(255, 99, 183, 196);
+const Color _kSoftBg = Color(0xFFECF6F8);
+const Color _kPressedBg = Color(0xFFD9E2E4);
 
 class EditButton extends StatelessWidget {
   final VoidCallback onPressed;
@@ -20,17 +22,30 @@ class EditButton extends StatelessWidget {
       child: ElevatedButton(
         onPressed: onPressed,
         style: ElevatedButton.styleFrom(
-          backgroundColor: _green,
-          foregroundColor: Colors.white,
+          foregroundColor: Colors.black,
           elevation: 0,
+          padding: EdgeInsets.zero,
+          splashFactory: NoSplash.splashFactory,
+          side: const BorderSide(color: _kGreen, width: 1.5),
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(7),
+            borderRadius: BorderRadius.circular(12),
           ),
+        ).copyWith(
+          backgroundColor: WidgetStateProperty.resolveWith((states) {
+            if (states.contains(WidgetState.pressed) ||
+                states.contains(WidgetState.hovered)) {
+              return _kPressedBg;
+            }
+            return _kSoftBg;
+          }),
+          overlayColor: WidgetStateProperty.all(Colors.transparent),
         ),
         child: Text(
           text,
           style: const TextStyle(
+            color: Colors.black,
             fontSize: 12,
+            fontWeight: FontWeight.w700,
           ),
         ),
       ),

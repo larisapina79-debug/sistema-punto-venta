@@ -8,6 +8,10 @@ class StatusSwitch extends StatelessWidget {
   final String? mensajeEstado;
   final bool mostrandoMensajeEstado;
   final bool puedeCambiar;
+
+  /// Modo compacto: sin recuadro de mensaje arriba y con ancho fijo en el
+  /// texto, para que nada se mueva al cambiar entre Activado/Desactivado.
+  final bool compacto;
   final ValueChanged<bool>? onChanged;
 
   const StatusSwitch({
@@ -16,125 +20,109 @@ class StatusSwitch extends StatelessWidget {
     this.mensajeEstado,
     this.mostrandoMensajeEstado = false,
     this.puedeCambiar = true,
+    this.compacto = false,
     this.onChanged,
   });
 
   @override
   Widget build(BuildContext context) {
-  final mensaje = mensajeEstado?.toLowerCase() ?? '';
+    final mensaje = mensajeEstado?.toLowerCase() ?? '';
 
-final mensajeEsActivo =
-    mensaje.contains('activado') &&
-    !mensaje.contains('desactivado');
+    final mensajeEsActivo =
+        mensaje.contains('activado') &&
+        !mensaje.contains('desactivado');
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.end,
       mainAxisSize: MainAxisSize.min,
       children: [
-        AnimatedOpacity(
-          opacity: mostrandoMensajeEstado ? 1.0 : 0.0,
-          duration: const Duration(milliseconds: 250),
-          child: AnimatedContainer(
+        if (!compacto)
+          AnimatedOpacity(
+            opacity: mostrandoMensajeEstado ? 1.0 : 0.0,
             duration: const Duration(milliseconds: 250),
-            margin: EdgeInsets.only(
-              bottom: mostrandoMensajeEstado ? 8 : 0,
-            ),
-            padding: const EdgeInsets.symmetric(
-              horizontal: 14,
-              vertical: 9,
-            ),
-            decoration: BoxDecoration(
-              color: mensajeEsActivo
-                  ? const Color(0xFFE8F5E9)
-                  : const Color(0xFFFFEBEE),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: mensajeEsActivo
-                    ? const Color(0xFFB7DDBA)
-                    : const Color(0xFFFFC5C5),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 250),
+              margin: EdgeInsets.only(
+                bottom: mostrandoMensajeEstado ? 8 : 0,
               ),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  mensajeEsActivo
-                      ? Icons.check_circle
-                      : Icons.info_outline,
-                  size: 17,
-                  color: mensajeEsActivo ? _green : _red,
+              padding: const EdgeInsets.symmetric(
+                horizontal: 14,
+                vertical: 9,
+              ),
+              decoration: BoxDecoration(
+                color: mensajeEsActivo
+                    ? const Color(0xFFE8F5E9)
+                    : const Color(0xFFFFEBEE),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: mensajeEsActivo
+                      ? const Color(0xFFB7DDBA)
+                      : const Color(0xFFFFC5C5),
                 ),
-                const SizedBox(width: 7),
-                Text(
-                  mensajeEstado ?? '',
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    mensajeEsActivo
+                        ? Icons.check_circle
+                        : Icons.info_outline,
+                    size: 17,
                     color: mensajeEsActivo ? _green : _red,
                   ),
-                ),
-              ],
-            ),
-          ),
-        ),
-
-        Container(
-          padding: const EdgeInsets.symmetric(
-            horizontal: 14,
-            vertical: 10,
-          ),
-          decoration: BoxDecoration(
-            color: activo
-                ? const Color(0xFFE8F5E9)
-                : const Color(0xFFFFEBEE),
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color: activo
-                  ? const Color(0xFFB7DDBA)
-                  : const Color(0xFFFFC5C5),
-            ),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                activo
-                    ? Icons.check_circle_outline
-                    : Icons.cancel_outlined,
-                size: 20,
-                color: activo ? _green : _red,
-              ),
-              const SizedBox(width: 8),
-              Text(
-                activo ? 'Activado' : 'Desactivado',
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  color: activo ? _green : _red,
-                ),
-              ),
-              const SizedBox(width: 12),
-              SizedBox(
-                height: 28,
-                child: FittedBox(
-                  child: Switch(
-                    value: activo,
-                    activeTrackColor: _green,
-                    activeThumbColor: Colors.white,
-                    inactiveTrackColor:
-                        _red.withValues(alpha: 0.35),
-                    inactiveThumbColor: Colors.white,
-                    trackOutlineColor:
-                        WidgetStateProperty.all(
-                      Colors.transparent,
+                  const SizedBox(width: 7),
+                  Text(
+                    mensajeEstado ?? '',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: mensajeEsActivo ? _green : _red,
                     ),
-                    onChanged:
-                        puedeCambiar ? onChanged : null,
                   ),
+                ],
+              ),
+            ),
+          ),
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              activo
+                  ? Icons.check_circle_outline
+                  : Icons.cancel_outlined,
+              size: 20,
+              color: activo ? _green : _red,
+            ),
+            const SizedBox(width: 8),
+            SizedBox(
+              width: compacto ? 100 : null,
+              child: Text(
+                activo ? 'Activado' : 'Desactivado',
+                maxLines: 1,
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.black,
                 ),
               ),
-            ],
-          ),
+            ),
+            const SizedBox(width: 12),
+            SizedBox(
+              height: 28,
+              child: FittedBox(
+                child: Switch(
+                  value: activo,
+                  activeTrackColor: _green,
+                  activeThumbColor: Colors.white,
+                  inactiveTrackColor: _red,
+                  inactiveThumbColor: Colors.white,
+                  trackOutlineColor:
+                      WidgetStateProperty.all(Colors.transparent),
+                  onChanged: puedeCambiar ? onChanged : null,
+                ),
+              ),
+            ),
+          ],
         ),
       ],
     );
