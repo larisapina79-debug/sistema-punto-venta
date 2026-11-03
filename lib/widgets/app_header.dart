@@ -3,6 +3,7 @@ import '../services/auth_service.dart';
 import '../screens/users/user_detail_screen.dart';
 import '../screens/cash_closures/cash_register_history_screen.dart';
 import '../screens/cash_closures/close_cash_register_screen.dart';
+import '../screens/products/product_screen.dart';
 
 const Color kGreen = Color.fromARGB(255, 99, 183, 196);
 const Color kBlueUser = Color.fromARGB(255, 99, 183, 196);
@@ -20,7 +21,6 @@ class NavItem {
 const List<NavItem> navItems = [
   NavItem('Ventas', '/ventas'),
   NavItem('Pedidos', '/pedidos'),
-  NavItem('Inventario', '/inventario'),
   NavItem('Productos', '/productos'),
   NavItem('Usuarios', '/usuarios'),
   NavItem('Sucursales', '/sucursales'),
@@ -214,6 +214,15 @@ class _NavButton extends StatelessWidget {
           );
           return;
         }
+        if (item.route == '/productos') {
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const ProductScreen(),
+      ),
+    );
+    return;
+  }
         if (!selected) {
           Navigator.pushReplacementNamed(
             context,
@@ -492,6 +501,15 @@ class _DrawerItem extends StatelessWidget {
       context,
       MaterialPageRoute(
         builder: (_) => const CashRegisterHistoryScreen(),
+      ),
+    );
+    return;
+  }
+  if (item.route == '/productos') {
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const ProductScreen(),
       ),
     );
     return;

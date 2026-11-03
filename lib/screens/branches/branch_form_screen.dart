@@ -1,4 +1,5 @@
-import 'dart:ui' as ui;
+import 'dart:ui' show PathMetric, Path, Rect, RRect, Radius;
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
@@ -12,6 +13,7 @@ const Color _textDark = Color(0xFF212121);
 const Color _teal = Color(0xFF63B7C4);
 const Color _red = Color(0xFFF4512A);
 const Color _cancel = Color(0xFFFF5722);
+
 class BranchFormScreen extends StatefulWidget {
   const BranchFormScreen({super.key});
 
@@ -30,9 +32,31 @@ class _BranchFormScreenState extends State<BranchFormScreen> {
   XFile? _image;
   Uint8List? _imageBytes;
   String? _errorMessage;
+  Timer? _messageTimer;
+  String? _successMessage;
+  bool _registrado = false;
+
+  ButtonStyle get _cancelStyle => OutlinedButton.styleFrom(
+        foregroundColor: _cancel,
+        backgroundColor: Colors.white,
+        side: const BorderSide(color: _cancel, width: 1.5),
+        minimumSize: const Size(0, 48),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        textStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+      );
+
+  ButtonStyle get _acceptStyle => OutlinedButton.styleFrom(
+        foregroundColor: Colors.black,
+        backgroundColor: _teal.withValues(alpha: 0.12),
+        side: const BorderSide(color: _teal, width: 1.5),
+        minimumSize: const Size(0, 48),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        textStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+      );
 
   @override
   void dispose() {
+    _messageTimer?.cancel();
     _nameController.dispose();
     _addressController.dispose();
     _phoneController.dispose();
@@ -96,107 +120,93 @@ class _BranchFormScreenState extends State<BranchFormScreen> {
     });
   }
 
-  Future<bool> _confirmarRegistro(String name) async {
+   Future<bool> _confirmarRegistro(String name) async {
     final bool? result = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
-      builder: (dialogContext) {
-        return AlertDialog(
-          backgroundColor: Colors.white,
-          surfaceTintColor: Colors.transparent,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-          ),
-          title: const Text(
-            'Confirmar registro',
-            style: TextStyle(
-              color: Colors.black,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          content: Text(
-            '¿Estás seguro de que deseas registrar la sucursal '
-            '"$name"?',
-            style: const TextStyle(
-              color: _textDark,
-              fontSize: 15,
-            ),
-          ),
-          actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-          actions: [
-            OutlinedButton(
-              onPressed: () => Navigator.of(dialogContext).pop(false),
-              style: ButtonStyle(
-                foregroundColor: const WidgetStatePropertyAll(_cancel),
-                overlayColor:
-                    const WidgetStatePropertyAll(Colors.transparent),
-                backgroundColor:
-                    WidgetStateProperty.resolveWith((states) {
-                  if (states.contains(WidgetState.pressed) ||
-                      states.contains(WidgetState.hovered) ||
-                      states.contains(WidgetState.focused)) {
-                    return _cancel.withValues(alpha: 0.12);
-                  }
-                  return Colors.white;
-                }),
-                side: WidgetStateProperty.resolveWith((states) {
-                  final pressed = states.contains(WidgetState.pressed);
-                  return BorderSide(
-                    color: pressed
-                        ? _cancel.withValues(alpha: 0.25)
-                        : _cancel,
-                    width: 1.2,
-                  );
-                }),
-                padding: const WidgetStatePropertyAll(
-                  EdgeInsets.symmetric(horizontal: 24, vertical: 13),
+      builder: (dialogContext) => Dialog(
+        backgroundColor: Colors.white,
+        surfaceTintColor: Colors.transparent,
+        insetPadding: const EdgeInsets.symmetric(horizontal: 24),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 420),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(24, 28, 24, 22),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 64,
+                  height: 64,
+                  decoration: BoxDecoration(
+                    color: _teal.withValues(alpha: 0.15),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.edit_outlined, color: _teal, size: 32),
                 ),
-                shape: WidgetStatePropertyAll(
-                  RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
+                const SizedBox(height: 18),
+                const Text(
+                  'Confirmar registro',
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w700,
+                    color: _textDark,
                   ),
                 ),
-              ),
-              child: const Text(
-                'Cancelar',
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w700,
+                const SizedBox(height: 10),
+                Text.rich(
+                  TextSpan(
+                    style: const TextStyle(
+                      fontSize: 15,
+                      color: _textDark,
+                      height: 1.4,
+                    ),
+                    children: [
+                      const TextSpan(
+                        text:
+                            '¿Estás seguro de que deseas registrar la sucursal ',
+                      ),
+                      TextSpan(
+                        text: '"$name"',
+                        style: const TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                      const TextSpan(text: '?'),
+                    ],
+                  ),
+                  textAlign: TextAlign.center,
                 ),
-              ),
+                const SizedBox(height: 24),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () => Navigator.of(dialogContext).pop(false),
+                        style: _cancelStyle,
+                        child: const Text('Cancelar'),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () => Navigator.of(dialogContext).pop(true),
+                        style: _acceptStyle,
+                        child: const Text('Aceptar'),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
             ),
-            OutlinedButton(
-              onPressed: () => Navigator.of(dialogContext).pop(true),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: Colors.black,
-                backgroundColor: _teal.withValues(alpha: 0.12),
-                side: const BorderSide(color: _teal, width: 1.5),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 24,
-                  vertical: 13,
-                ),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-              child: const Text(
-                'Aceptar',
-                style: TextStyle(
-                  color: Colors.black,
-                  fontSize: 14,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ),
-          ],
-        );
-      },
+          ),
+        ),
+      ),
     );
     return result == true;
   }
 
   Future<void> _saveBranch() async {
-    if (_saving) return;
+    if (_saving || _registrado) return;
     final String name = _nameController.text.trim();
     final String address = _addressController.text.trim();
     final String phone = _phoneController.text.trim();
@@ -240,7 +250,10 @@ class _BranchFormScreenState extends State<BranchFormScreen> {
         '${timer.elapsedMilliseconds} ms.',
       );
       if (!mounted) return;
-      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      _registrado = true;
+      _showSuccess('Sucursal registrada correctamente.');
+      await Future.delayed(const Duration(milliseconds: 1500));
+      if (!mounted) return;
       Navigator.of(context).pop(true);
     } catch (e, stackTrace) {
       debugPrint('Error al registrar sucursal: $e');
@@ -256,8 +269,8 @@ class _BranchFormScreenState extends State<BranchFormScreen> {
       }
     }
   }
-  void _showError(String message) {
-    setState(() => _errorMessage = message);
+
+  void _scrollArriba() {
     if (_scrollController.hasClients) {
       _scrollController.animateTo(
         0,
@@ -266,111 +279,86 @@ class _BranchFormScreenState extends State<BranchFormScreen> {
       );
     }
   }
+
+  void _showError(String message) {
+    if (!mounted) return;
+    _messageTimer?.cancel();
+    setState(() {
+      _errorMessage = message;
+      _successMessage = null;
+    });
+    _scrollArriba();
+    _messageTimer = Timer(const Duration(seconds: 3), () {
+      if (!mounted) return;
+      if (_errorMessage == message) setState(() => _errorMessage = null);
+    });
+  }
+
+  void _showSuccess(String message) {
+    if (!mounted) return;
+    _messageTimer?.cancel();
+    setState(() {
+      _successMessage = message;
+      _errorMessage = null;
+    });
+    _scrollArriba();
+  }
+
   void _clearError() {
-    if (_errorMessage != null) {
-      setState(() => _errorMessage = null);
+    _messageTimer?.cancel();
+    if (_errorMessage != null || _successMessage != null) {
+      setState(() {
+        _errorMessage = null;
+        _successMessage = null;
+      });
     }
   }
 
- Widget _avisoError() {
-  final String? message = _errorMessage;
-  return AnimatedSize(
-    duration: const Duration(milliseconds: 200),
-    curve: Curves.easeOut,
-    alignment: Alignment.topCenter,
-    child: message == null
-        ? const SizedBox(width: double.infinity)
-        : Container(
-            margin: const EdgeInsets.only(bottom: 18),
-            decoration: BoxDecoration(
-              color: const Color(0xFFFDECEA),
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(
-                color: _red.withValues(alpha: 0.45),
-              ),
-              boxShadow: const [
-                BoxShadow(
-                  color: Color(0x14000000),
-                  blurRadius: 8,
-                  offset: Offset(0, 3),
-                ),
-              ],
+  Widget _messages() {
+    if (_errorMessage == null && _successMessage == null) {
+      return const SizedBox.shrink();
+    }
+
+    final error = _errorMessage != null;
+    final message = _errorMessage ?? _successMessage!;
+
+    final color = error ? const Color(0xFFC62828) : const Color(0xFF2E7D32);
+    final bg = error ? const Color(0xFFFDECEA) : const Color(0xFFE8F5E9);
+    final border = error ? const Color(0xFFF5B5AE) : const Color(0xFFA5D6A7);
+
+    return Center(
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 16),
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: border),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              error ? Icons.error_outline_rounded : Icons.check_circle,
+              color: color,
+              size: 22,
             ),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(13),
-              child: IntrinsicHeight(
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    const ColoredBox(
-                      color: _red,
-                      child: SizedBox(width: 5),
-                    ),
-                    Expanded(
-                      child: Padding(
-                        padding:
-                            const EdgeInsets.fromLTRB(14, 12, 4, 12),
-                        child: Row(
-                          children: [
-                            Container(
-                              width: 36,
-                              height: 36,
-                              decoration: const BoxDecoration(
-                                color: _red,
-                                shape: BoxShape.circle,
-                              ),
-                              child: const Icon(
-                                Icons.priority_high_rounded,
-                                color: Colors.white,
-                                size: 22,
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment:
-                                    CrossAxisAlignment.start,
-                                children: [
-                                  const Text(
-                                    'Revisa el formulario',
-                                    style: TextStyle(
-                                      color: Color(0xFFB71C1C),
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.w800,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    message,
-                                    style: const TextStyle(
-                                      color: Color(0xFF7F1D1D),
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w500,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            IconButton(
-                              tooltip: 'Cerrar',
-                              onPressed: _clearError,
-                              icon: const Icon(
-                                Icons.close_rounded,
-                                color: Color(0xFFB71C1C),
-                                size: 20,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
+            const SizedBox(width: 12),
+            Flexible(
+              child: Text(
+                message,
+                style: TextStyle(
+                  color: color,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
                 ),
               ),
             ),
-          ),
-  );
-}
+          ],
+        ),
+      ),
+    );
+  }
 
   Widget _botonVolver() {
     return Align(
@@ -720,7 +708,7 @@ class _BranchFormScreenState extends State<BranchFormScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  _avisoError(),
+                 _messages(), 
                   _botonVolver(),
                   const SizedBox(height: 12),
                   Text(
@@ -816,7 +804,7 @@ class _DashedBorderPainter extends CustomPainter {
           const Radius.circular(radius),
         ),
       );
-    for (final ui.PathMetric metric in path.computeMetrics()) {
+    for (final PathMetric metric in path.computeMetrics()) {
       double distance = 0;
       while (distance < metric.length) {
         final double end =

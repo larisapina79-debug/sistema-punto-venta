@@ -8,6 +8,7 @@ import 'services/auth_service.dart';
 import 'screens/cash_closures/start_cash_register_screen.dart';
 import 'screens/branches/branch_screen.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
+import 'screens/products/product_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -45,6 +46,7 @@ class MyApp extends StatelessWidget {
         '/login': (_) => const LoginScreen(),
         '/usuarios': (_) => const UsersScreen(),
         '/sucursales': (_) => const BranchesScreen(),
+         '/productos': (_) => const ProductScreen(),
         '/start-cash-register': (_) => const StartCashRegisterScreen(),
       },
     );

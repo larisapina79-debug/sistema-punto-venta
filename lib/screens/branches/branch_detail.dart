@@ -6,11 +6,11 @@ import '../../services/branch_service.dart';
 import '../../widgets/save.dart';
 import '../../widgets/cancel.dart';
 
-const Color _green = Color(0xFF0F6B1F);
 const Color _red = Color(0xFFF4512A);
-const Color _greenSoft = Color(0xFFE8F5E9);
 const Color _borderGrey = Color(0xFFE0E0E0);
 const Color _accent = Color.fromARGB(255, 99, 183, 196);
+const Color _teal = Color(0xFF63B7C4);
+const Color _textDark = Color(0xFF212121);
 class BranchDetailScreen extends StatefulWidget {
   final String branchId;
   const BranchDetailScreen({
@@ -25,6 +25,7 @@ class BranchDetailScreen extends StatefulWidget {
 class _BranchDetailScreenState extends State<BranchDetailScreen> {
   final BranchService _service = BranchService();
   final ImagePicker _picker = ImagePicker();
+  final ScrollController _scrollController = ScrollController();
   final TextEditingController nombreController =  TextEditingController();
   final TextEditingController direccionController =  TextEditingController();
   final TextEditingController telefonoController = TextEditingController();
@@ -41,6 +42,24 @@ class _BranchDetailScreenState extends State<BranchDetailScreen> {
   bool _mostrandoMensajeGeneral = false;
   bool _mensajeExito = false;
 
+  ButtonStyle get _cancelStyle => OutlinedButton.styleFrom(
+        foregroundColor: _red,
+        backgroundColor: Colors.white,
+        side: const BorderSide(color: _red, width: 1.5),
+        minimumSize: const Size(0, 48),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        textStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+      );
+
+  ButtonStyle get _acceptStyle => OutlinedButton.styleFrom(
+        foregroundColor: Colors.black,
+        backgroundColor: _teal.withValues(alpha: 0.12),
+        side: const BorderSide(color: _teal, width: 1.5),
+        minimumSize: const Size(0, 48),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        textStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+      );
+
   @override
   void initState() {
     super.initState();
@@ -52,6 +71,7 @@ class _BranchDetailScreenState extends State<BranchDetailScreen> {
     nombreController.dispose();
     direccionController.dispose();
     telefonoController.dispose();
+  _scrollController.dispose();
     super.dispose();
   }
 
@@ -113,6 +133,92 @@ class _BranchDetailScreenState extends State<BranchDetailScreen> {
     });
   }
 
+  Future<bool> _confirmarCambios(String name) async {
+    final bool? resultado = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => Dialog(
+        backgroundColor: Colors.white,
+        surfaceTintColor: Colors.transparent,
+        insetPadding: const EdgeInsets.symmetric(horizontal: 24),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 420),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(24, 28, 24, 22),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 64,
+                  height: 64,
+                  decoration: BoxDecoration(
+                    color: _teal.withValues(alpha: 0.15),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.edit_outlined, color: _teal, size: 32),
+                ),
+                const SizedBox(height: 18),
+                const Text(
+                  'Confirmar cambios',
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w700,
+                    color: _textDark,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Text.rich(
+                  TextSpan(
+                    style: const TextStyle(
+                      fontSize: 15,
+                      color: _textDark,
+                      height: 1.4,
+                    ),
+                    children: [
+                      const TextSpan(
+                        text:
+                            '¿Estás seguro de que deseas guardar los cambios de la sucursal ',
+                      ),
+                      TextSpan(
+                        text: '"$name"',
+                        style: const TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                      const TextSpan(text: '?'),
+                    ],
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 24),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () => Navigator.of(dialogContext).pop(false),
+                        style: _cancelStyle,
+                        child: const Text('Cancelar'),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () => Navigator.of(dialogContext).pop(true),
+                        style: _acceptStyle,
+                        child: const Text('Aceptar'),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+
+    return resultado == true;
+  }
+
   Future<void> _guardar() async {
     final nombre = nombreController.text.trim();
     final direccion = direccionController.text.trim();
@@ -125,6 +231,8 @@ class _BranchDetailScreenState extends State<BranchDetailScreen> {
       _mostrarMensaje('Ingresa la dirección de la sucursal.');
       return;
     }
+    final bool confirmado = await _confirmarCambios(nombre);
+    if (!confirmado || !mounted) return;
     setState(() => _cargando = true);
     try {
       String logoFinal = _quitarLogo ? '' : _logoUrl;
@@ -231,52 +339,62 @@ class _BranchDetailScreenState extends State<BranchDetailScreen> {
       _mensajeExito = exito;
       _mostrandoMensajeGeneral = true;
     });
+     if (_scrollController.hasClients) {
+      _scrollController.animateTo(
+        0,
+        duration: const Duration(milliseconds: 250),
+        curve: Curves.easeOut,
+      );
+    }
 
-    Future.delayed(const Duration(milliseconds: 2500), () {
+
+    Future.delayed(const Duration(seconds: 3), () {
       if (!mounted) return;
+      if (_mensajeGeneral == mensaje) {
       setState(() => _mostrandoMensajeGeneral = false);
+      }
     });
   }
 
-  Widget _mensaje() {
+    Widget _mensaje() {
     if (!_mostrandoMensajeGeneral) {
       return const SizedBox.shrink();
     }
-    return Container(
-      width: double.infinity,
-      margin: const EdgeInsets.only(bottom: 18),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: _mensajeExito
-            ? _greenSoft
-            : const Color(0xFFFFEBEE),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-          color: _mensajeExito
-              ? const Color(0xFFB7DDBA)
-              : const Color(0xFFFFC5C5),
+    final error = !_mensajeExito;
+    final message = _mensajeGeneral ?? '';
+    final color = error ? const Color(0xFFC62828) : const Color(0xFF2E7D32);
+    final bg = error ? const Color(0xFFFDECEA) : const Color(0xFFE8F5E9);
+    final border = error ? const Color(0xFFF5B5AE) : const Color(0xFFA5D6A7);
+    return Center(
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 16),
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: border),
         ),
-      ),
-      child: Row(
-        children: [
-          Icon(
-            _mensajeExito
-                ? Icons.check_circle_outline
-                : Icons.error_outline,
-            color: _mensajeExito ? _green : _red,
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              _mensajeGeneral ?? '',
-              style: TextStyle(
-                color: _mensajeExito ? _green : _red,
-                fontSize: 13,
-                fontWeight: FontWeight.w500,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              error ? Icons.error_outline_rounded : Icons.check_circle,
+              color: color,
+              size: 22,
+            ),
+            const SizedBox(width: 12),
+            Flexible(
+              child: Text(
+                message,
+                style: TextStyle(
+                  color: color,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -286,19 +404,19 @@ class _BranchDetailScreenState extends State<BranchDetailScreen> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(
-            Icons.image_outlined,
-            size: 42,
-            color: Color(0xFF9E9E9E),
-          ),
+           Icon(
+          Icons.add_photo_alternate_outlined,
+          color: _accent,
+          size: 35,
+        ),
           SizedBox(height: 6),
           Text(
-            '---',
+            'Sin imagen',
             textAlign: TextAlign.center,
             style: TextStyle(
               color: Color(0xFF9E9E9E),
-              fontSize: 18,
-              fontWeight: FontWeight.w600,
+              fontSize: 14,
+              fontWeight: FontWeight.w500,
             ),
           ),
         ],
@@ -688,6 +806,7 @@ Widget _campoLogo() {
               child: CircularProgressIndicator(color: _accent),
             )
           : SingleChildScrollView(
+              controller: _scrollController,
               padding: EdgeInsets.fromLTRB(
                 esMovil ? 18 : 28,
                 14,
@@ -697,6 +816,7 @@ Widget _campoLogo() {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
+                  _mensaje(),
                   _encabezado(esMovil),
                   const SizedBox(height: 20),
                   const Divider(
@@ -704,7 +824,6 @@ Widget _campoLogo() {
                     height: 1,
                   ),
                   const SizedBox(height: 18),
-                  _mensaje(),
                   const Center(
                     child: Text(
                       'Información de la sucursal',

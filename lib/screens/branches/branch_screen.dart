@@ -8,6 +8,8 @@ import '../users/users_screen.dart';
 import 'branch_detail.dart';
 import 'branch_form_screen.dart';
 import 'branch_ticket.dart';
+import '../products/product_screen.dart';
+import '../../services/auth_service.dart';
 
 const _red = Color(0xFFF4512A);
 const _borderGrey = Color(0xFFE0E0E0);
@@ -90,14 +92,19 @@ class _BranchesScreenState extends State<BranchesScreen> {
   }
 
   void _openProducts(String id, String nombre) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text(
-          'La pantalla de inventario aún no está disponible.',
-        ),
+  Navigator.push(
+    context,
+    MaterialPageRoute(
+      settings: RouteSettings(
+        arguments: {
+          'branchId': id,
+          'branchName': nombre,
+        },
       ),
-    );
-  }
+      builder: (_) => const ProductScreen(),
+    ),
+  );
+}
 
   Future<void> _setStatus(String id, bool value) async {
     if (id.isEmpty) return;
@@ -132,6 +139,43 @@ class _BranchesScreenState extends State<BranchesScreen> {
       return assigned.any((item) => _refMatches(item, id));
     }
     return _refMatches(assigned, id);
+  }
+    bool get _esAdministrador =>
+      (Session.user?.roleUser ?? '').toString().trim().toLowerCase() ==
+      'administrador';
+
+  String _idDe(dynamic item) {
+    if (item == null) return '';
+    if (item is DocumentReference) return item.id;
+    if (item is Map) return _idDe(item['id'] ?? item['id_branches']);
+
+    final text = item.toString().trim();
+    return text.contains('/') ? text.split('/').last : text;
+  }
+
+  Set<String> get _idsAsignados {
+    final ids = <String>{};
+    final dynamic assigned = Session.user?.idBranches;
+
+    if (assigned is Iterable) {
+      for (final item in assigned) {
+        final id = _idDe(item);
+        if (id.isNotEmpty) ids.add(id);
+      }
+    } else {
+      final id = _idDe(assigned);
+      if (id.isNotEmpty) ids.add(id);
+    }
+
+    return ids;
+  }
+  List<Map<String, dynamic>> _visibles(List<Map<String, dynamic>> todas) {
+    if (_esAdministrador) return todas;
+
+    final ids = _idsAsignados;
+    return todas
+        .where((b) => ids.contains((b['id'] ?? '').toString()))
+        .toList();
   }
 
   Future<_BranchStats> _loadStats(String id) {
@@ -902,13 +946,12 @@ class _BranchesScreenState extends State<BranchesScreen> {
     final last = (first + visible) < totalPages
         ? first + visible
         : totalPages;
-    return Wrap(
-      alignment: WrapAlignment.spaceBetween,
-      crossAxisAlignment: WrapCrossAlignment.center,
-      spacing: 12,
-      runSpacing: 12,
-      children: [
-        Text(
+    return Row(
+    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+    crossAxisAlignment: CrossAxisAlignment.center,
+    children: [
+      Expanded(
+        child: Text(
           total == 0
               ? 'Mostrando 0 sucursales'
               : 'Mostrando ${start + 1} - $end de $total sucursales',
@@ -917,6 +960,7 @@ class _BranchesScreenState extends State<BranchesScreen> {
             fontSize: 13,
           ),
         ),
+      ),
         Row(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -967,7 +1011,7 @@ class _BranchesScreenState extends State<BranchesScreen> {
                     child: CircularProgressIndicator(color: _accent),
                   );
                 }
-                final all = snap.data!;
+               final all = _visibles(snap.data!);
                 final branches = all.where((b) {
                   final activa = b['branch_status'] == true;
                   if (_filtro == 'activas' && !activa) return false;
@@ -1001,14 +1045,18 @@ class _BranchesScreenState extends State<BranchesScreen> {
                     ? total
                     : start + _pageSize;
                 final pageBranches = branches.sublist(start, end);
-                return ListView(
+                return Padding(
                   padding: EdgeInsets.fromLTRB(
                     isMobile ? 12 : 24,
                     20,
                     isMobile ? 12 : 24,
                     12,
                   ),
+                   child: Column(
                   children: [
+                     Expanded(
+                  child: ListView(
+                    children: [
                     _titulo(isMobile),
                     const SizedBox(height: 22),
                     _barraBusquedaYRegistro(),
@@ -1033,11 +1081,15 @@ class _BranchesScreenState extends State<BranchesScreen> {
                         (b) => _branchCard(
                           b,
                           all.indexWhere((x) => x['id'] == b['id']) + 1,
-                        ),
-                      ),
-                    const SizedBox(height: 6),
+                         ),
+                          ),
+                      ],
+                    ),
+                  ),
+                    const SizedBox(height: 12),
                     _pagination(total, totalPages, start, end),
                   ],
+                ),
                 );
               },
             ),

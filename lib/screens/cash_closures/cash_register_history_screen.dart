@@ -5,6 +5,8 @@ import 'package:puntoventa/models/cash_closure_model.dart';
 import 'package:puntoventa/screens/cash_closures/cash_closure_detail_screen.dart';
 import '../../services/branch_service.dart';
 import '../../widgets/app_header.dart';
+import 'package:flutter/services.dart';
+import '../../services/auth_service.dart';
 
 const Color _kGreen = Color.fromARGB(255, 99, 183, 196);
 const Color _kGreenDark = Color.fromARGB(255, 99, 183, 196);
@@ -91,6 +93,28 @@ class _CashRegisterHistoryScreenState
     super.dispose();
   }
 
+String _formatMoney(num value) {
+  final parts = value.toStringAsFixed(2).split('.');
+  final entero = parts.first.replaceAllMapped(
+    RegExp(r'\B(?=(\d{3})+(?!\d))'),
+    (_) => ',',
+  );
+  return '$entero.${parts[1]}';
+}
+
+void _changeInitialCash(double change) {
+  final actual = double.tryParse(
+        _initialCashController.text.replaceAll(',', '').trim(),
+      ) ??
+      0;
+  final nuevo = (actual + change).clamp(0.0, double.infinity);
+  final text = _formatMoney(nuevo);
+
+  _initialCashController.value = TextEditingValue(
+    text: text,
+    selection: TextSelection.collapsed(offset: text.length),
+  );
+}
   Future<void> _load() async {
     if (!mounted) return;
     setState(() {
@@ -107,7 +131,9 @@ class _CashRegisterHistoryScreenState
       final usersFuture = db.collection('users').get();
       final closuresSnap = await closuresFuture;
       final List<Map<String, dynamic>> branchesData =
-          await branchesFuture;
+        (await branchesFuture)
+            .where((b) => _puedeVer(b['id']?.toString() ?? ''))
+            .toList();
       final usersSnap = await usersFuture;
       final Map<String, String> branchNames = {};
       for (final branch in branchesData) {
@@ -144,15 +170,16 @@ class _CashRegisterHistoryScreenState
           _pickString(data, ['role', 'rol', 'user_role']),
         );
       }
-      final List<_ClosureView> items = closuresSnap.docs.map((doc) {
-        final closure = CashClosureModel.fromFirestore(doc);
-        return _ClosureView(
-          closure: closure,
-          userName: userNames[closure.idUsers] ?? 'Usuario',
-          role: userRoles[closure.idUsers] ?? 'Empleado',
-          branch: branchNames[closure.idBranch] ?? 'Sucursal',
-        );
-      }).toList();
+            final List<_ClosureView> items = closuresSnap.docs
+          .map((doc) => CashClosureModel.fromFirestore(doc))
+          .where((closure) => _puedeVer(closure.idBranch))
+          .map((closure) => _ClosureView(
+                closure: closure,
+                userName: userNames[closure.idUsers] ?? 'Usuario',
+                role: userRoles[closure.idUsers] ?? 'Empleado',
+                branch: branchNames[closure.idBranch] ?? 'Sucursal',
+              ))
+          .toList();
       if (!mounted) return;
       setState(() {
         _items = items;
@@ -213,110 +240,196 @@ class _CashRegisterHistoryScreenState
         break;
     }
   }
+    bool get _esAdministrador =>
+      (Session.user?.roleUser ?? '').toString().trim().toLowerCase() ==
+      'administrador';
+
+  String _idDe(dynamic item) {
+    if (item == null) return '';
+    if (item is DocumentReference) return item.id;
+    if (item is Map) return _idDe(item['id'] ?? item['id_branches']);
+
+    final text = item.toString().trim();
+    return text.contains('/') ? text.split('/').last : text;
+  }
+
+  Set<String> get _idsAsignados {
+    final ids = <String>{};
+    final dynamic assigned = Session.user?.idBranches;
+
+    if (assigned is Iterable) {
+      for (final item in assigned) {
+        final id = _idDe(item);
+        if (id.isNotEmpty) ids.add(id);
+      }
+    } else {
+      final id = _idDe(assigned);
+      if (id.isNotEmpty) ids.add(id);
+    }
+
+    return ids;
+  }
+  bool _puedeVer(String branchId) {
+    if (_esAdministrador) return true;
+    return _idsAsignados.contains(branchId);
+  }
 
   Future<void> _pickDate({required bool isFrom}) async {
-    final initialDate = isFrom ? _from : _to;
-    DateTime tempDate = initialDate;
-    final picked = await showDialog<DateTime>(
-      context: context,
-      builder: (dialogContext) {
-        return Dialog(
-          backgroundColor: Colors.white,
-          surfaceTintColor: Colors.transparent,
-          insetPadding: const EdgeInsets.symmetric(
-            horizontal: 16,
-            vertical: 24,
-          ),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(20),
-          ),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 360),
-            child: StatefulBuilder(
-              builder: (context, setDialogState) {
-                return Padding(
-                  padding: const EdgeInsets.fromLTRB(8, 8, 8, 4),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Theme(
-                        data: Theme.of(context).copyWith(
-                          colorScheme: Theme.of(context).colorScheme.copyWith(
-                                primary: const Color.fromARGB(255, 99, 183, 196),
-                                onPrimary: Colors.black,
-                                surface: Colors.white,
-                                onSurface: Colors.black,
-                              ),
-                        ),
-                        child: CalendarDatePicker(
-                          initialDate: tempDate,
-                          firstDate: DateTime(2020),
-                          lastDate: DateTime(2100),
-                          currentDate: DateTime.now(),
-                          onDateChanged: (date) {
-                            setDialogState(() {
-                              tempDate = date;
-                            });
-                          },
-                        ),
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.only(
-                          right: 8,
-                          bottom: 4,
-                        ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.end,
-                          children: [
-                            TextButton(
-                              onPressed: () {
-                                Navigator.of(dialogContext).pop();
-                              },
-                              style: TextButton.styleFrom(
-                                foregroundColor:
-                                    const Color.fromARGB(255, 26, 27, 27),
-                              ),
-                              child: const Text('Cancelar'),
-                            ),
-                            const SizedBox(width: 4),
-                            TextButton(
-                              onPressed: () {
-                                Navigator.of(dialogContext).pop(tempDate);
-                              },
-                              style: TextButton.styleFrom(
-                                foregroundColor: _kBlack,
-                              ),
-                              child: const Text('Aceptar'),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                );
-              },
+  final initialDate = isFrom ? _from : _to;
+  DateTime tempDate = initialDate;
+
+  final picked = await showDialog<DateTime>(
+    context: context,
+    builder: (dialogContext) {
+      final theme = Theme.of(dialogContext);
+
+      return Localizations.override(
+        context: dialogContext,
+        locale: const Locale('es', 'MX'),
+        child: Theme(
+          data: theme.copyWith(
+            colorScheme: theme.colorScheme.copyWith(
+              primary: _kGreen,
+              onPrimary: _kBlack,
+              surface: Colors.white,
+              onSurface: _kBlack,
+            ),
+            datePickerTheme: DatePickerThemeData(
+              dayStyle: const TextStyle(fontSize: 16),
+              todayForegroundColor:
+                  WidgetStateProperty.resolveWith((states) {
+                if (states.contains(WidgetState.selected)) {
+                  return _kBlack;
+                }
+                return _kGreen;
+              }),
+              todayBackgroundColor:
+                  WidgetStateProperty.resolveWith((states) {
+                if (states.contains(WidgetState.selected)) {
+                  return _kGreen;
+                }
+                return Colors.transparent;
+              }),
+              todayBorder: const BorderSide(color: _kGreen),
+              dayForegroundColor: WidgetStateProperty.all(_kBlack),
+              dayBackgroundColor:
+                  WidgetStateProperty.resolveWith((states) {
+                if (states.contains(WidgetState.selected)) {
+                  return _kGreen;
+                }
+                return null;
+              }),
             ),
           ),
-        );
-      },
-    );
-    if (picked == null || !mounted) return;
-    setState(() {
-      if (isFrom) {
-        _from = picked;
-        if (_to.isBefore(picked)) {
-          _to = picked;
-        }
-      } else {
+          child: Dialog(
+            backgroundColor: Colors.white,
+            surfaceTintColor: Colors.transparent,
+            insetPadding: const EdgeInsets.symmetric(
+              horizontal: 20,
+              vertical: 24,
+            ),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(18),
+            ),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 400),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const SizedBox(height: 12),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    child: SizedBox(
+                      height: 350,
+                      child: CalendarDatePicker(
+                        initialDate: initialDate,
+                        firstDate: DateTime(2020),
+                        lastDate: DateTime(2100),
+                        onDateChanged: (date) => tempDate = date,
+                      ),
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        OutlinedButton(
+                          onPressed: () =>
+                              Navigator.of(dialogContext).pop(),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: _kCancel,
+                            side: const BorderSide(
+                              color: _kCancel,
+                              width: 1.2,
+                            ),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 24,
+                              vertical: 13,
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                          child: const Text(
+                            'Cancelar',
+                            style: TextStyle(fontWeight: FontWeight.w700),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        OutlinedButton(
+                          onPressed: () =>
+                              Navigator.of(dialogContext).pop(tempDate),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.black,
+                            backgroundColor: _kGreen.withValues(alpha: 0.12),
+                            side: const BorderSide(
+                              color: _kGreen,
+                              width: 1.5,
+                            ),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 24,
+                              vertical: 13,
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                          child: const Text(
+                            'Aceptar',
+                            style: TextStyle(fontWeight: FontWeight.w700),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    },
+  );
+
+  if (picked == null || !mounted) return;
+
+  setState(() {
+    if (isFrom) {
+      _from = picked;
+      if (_to.isBefore(picked)) {
         _to = picked;
-        if (_from.isAfter(picked)) {
-          _from = picked;
-        }
       }
-      _period = '';
-      _page = 0;
-    });
-  }
+    } else {
+      _to = picked;
+      if (_from.isAfter(picked)) {
+        _from = picked;
+      }
+    }
+    _period = '';
+    _page = 0;
+  });
+}
 
   String _dateText(DateTime d) {
     final day = d.day.toString().padLeft(2, '0');
@@ -824,7 +937,9 @@ Widget _periodSelector() {
 
   Future<void> _showInitialCashDialog() async {
     try {
-      final branches = await _branchService.getBranches();
+           final branches = (await _branchService.getBranches())
+          .where((b) => _puedeVer(b['id']?.toString() ?? ''))
+          .toList();
       if (!mounted) return;
       final usableBranches = branches
           .where((b) => (b['id']?.toString() ?? '').isNotEmpty)
@@ -841,6 +956,7 @@ Widget _periodSelector() {
             ['branch_name', 'name', 'nombre'],
           ) ??
           'Sucursal';
+      bool branchOpen = false;
       _initialCashController.clear();
       final initialDoc = await FirebaseFirestore.instance
           .collection('branch_initial_cash')
@@ -867,116 +983,246 @@ Widget _periodSelector() {
             ),
             content: SizedBox(
               width: 420,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  DropdownButtonFormField<String>(
-                    initialValue: selectedBranchId,
-                    isExpanded: true,
-                    decoration: InputDecoration(
-                      labelText: 'Sucursal',
-                      floatingLabelStyle:
-                          const TextStyle(color: _kGreenDark),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: const BorderSide(color: _kBorderLight),
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: const BorderSide(
-                          color: _kGreenDark,
-                          width: 1.5,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        const Text(
+                          'Sucursal',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w500,
+                            color: Colors.black,
+                          ),
                         ),
+                        const SizedBox(height: 8),
+                        InkWell(
+                          borderRadius: BorderRadius.circular(12),
+                          onTap: () => setDialogState(
+                            () => branchOpen = !branchOpen,
+                          ),
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 150),
+                            width: double.infinity,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 14,
+                              vertical: 14,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: branchOpen
+                                    ? _kGreen
+                                    : const Color(0xFFBDBDBD),
+                                width: branchOpen ? 1.5 : 1,
+                              ),
+                            ),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    selectedBranchName,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      color: Color(0xFF212121),
+                                      fontSize: 14,
+                                    ),
+                                  ),
+                                ),
+                                Icon(
+                                  branchOpen
+                                      ? Icons.keyboard_arrow_up_rounded
+                                      : Icons.keyboard_arrow_down_rounded,
+                                  color: branchOpen
+                                      ? _kGreen
+                                      : const Color(0xFF9E9E9E),
+                                  size: 23,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        if (branchOpen) ...[
+                          const SizedBox(height: 6),
+                          Container(
+                            constraints:
+                                const BoxConstraints(maxHeight: 240),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              border: Border.all(
+                                color: const Color(0xFFBDBDBD),
+                              ),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(11),
+                              child: ListView.separated(
+                                shrinkWrap: true,
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 5),
+                                itemCount: usableBranches.length,
+                                separatorBuilder: (_, _) => const Divider(
+                                  height: 1,
+                                  indent: 12,
+                                  endIndent: 12,
+                                  color: Color(0xFFEAEAEA),
+                                ),
+                                itemBuilder: (context, index) {
+                                  final branch = usableBranches[index];
+                                  final id = branch['id'].toString();
+                                  final name = _pickString(
+                                        branch,
+                                        ['branch_name', 'name', 'nombre'],
+                                      ) ??
+                                      'Sucursal';
+                                  final selected = id == selectedBranchId;
+
+                                  return Material(
+                                    color: selected
+                                        ? _kGreen.withValues(alpha: 0.12)
+                                        : Colors.white,
+                                    child: InkWell(
+                                      onTap: () async {
+                                        setDialogState(() {
+                                          selectedBranchId = id;
+                                          selectedBranchName = name;
+                                          branchOpen = false;
+                                          _initialCashController.clear();
+                                        });
+                                        try {
+                                          final doc = await FirebaseFirestore
+                                              .instance
+                                              .collection(
+                                                  'branch_initial_cash')
+                                              .doc(id)
+                                              .get();
+                                          final stored =
+                                              doc.data()?['initial_cash'];
+                                          if (!dialogContext.mounted) return;
+                                          setDialogState(() {
+                                            if (stored is num) {
+                                              _initialCashController.text =
+                                                  stored.toStringAsFixed(2);
+                                            } else if (stored is String) {
+                                              _initialCashController.text =
+                                                  stored;
+                                            } else {
+                                              _initialCashController.clear();
+                                            }
+                                          });
+                                        } catch (e) {
+                                          debugPrint(
+                                            'Error al consultar el efectivo inicial: $e',
+                                          );
+                                        }
+                                      },
+                                      child: Padding(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 14,
+                                          vertical: 13,
+                                        ),
+                                        child: Row(
+                                          children: [
+                                            Expanded(
+                                              child: Text(
+                                                name,
+                                                maxLines: 2,
+                                                overflow:
+                                                    TextOverflow.ellipsis,
+                                                style: TextStyle(
+                                                  color:
+                                                      const Color(0xFF212121),
+                                                  fontSize: 14,
+                                                  fontWeight: selected
+                                                      ? FontWeight.w700
+                                                      : FontWeight.w500,
+                                                ),
+                                              ),
+                                            ),
+                                            if (selected)
+                                              const Icon(
+                                                Icons.check_circle_rounded,
+                                                color: _kGreen,
+                                                size: 21,
+                                              ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                  );
+                                },
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: _initialCashController,
+                      cursorColor: _kGreenDark,
+                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                      inputFormatters: [_ThousandsDecimalInputFormatter()],
+                      style: const TextStyle(color: Colors.black),
+                      decoration: InputDecoration(
+                        labelText: 'Efectivo inicial',
+                        floatingLabelStyle: const TextStyle(color: _kGreenDark),
+                        hintText: '0.00',
+                        prefixText: '\$ ',
+                        suffixIcon: SizedBox(
+                          width: 38,
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              InkWell(
+                                onTap: () => _changeInitialCash(1),
+                                child: const SizedBox(
+                                  height: 23,
+                                  width: 36,
+                                  child: Icon(
+                                    Icons.keyboard_arrow_up_rounded,
+                                    size: 21,
+                                    color: _kGreen,
+                                  ),
+                                ),
+                              ),
+                              InkWell(
+                                onTap: () => _changeInitialCash(-1),
+                                child: const SizedBox(
+                                  height: 23,
+                                  width: 36,
+                                  child: Icon(
+                                    Icons.keyboard_arrow_down_rounded,
+                                    size: 21,
+                                    color: _kGreen,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: const BorderSide(color: _kBorderLight),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: const BorderSide(color: _kGreenDark, width: 1.5),
+                         ),
                       ),
                     ),
-                    items: usableBranches.map((branch) {
-                      final id = branch['id'].toString();
-                      final name = _pickString(
-                            branch,
-                            ['branch_name', 'name', 'nombre'],
-                          ) ??
-                          'Sucursal';
-                      return DropdownMenuItem<String>(
-                        value: id,
-                        child: Text(
-                          name,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      );
-                    }).toList(),
-                    onChanged: (value) async {
-                      if (value == null) return;
-                      final branch = usableBranches.firstWhere(
-                        (b) => b['id']?.toString() == value,
-                      );
-                      final name = _pickString(
-                            branch,
-                            ['branch_name', 'name', 'nombre'],
-                          ) ??
-                          'Sucursal';
-                      setDialogState(() {
-                        selectedBranchId = value;
-                        selectedBranchName = name;
-                        _initialCashController.clear();
-                      });
-                      try {
-                        final doc = await FirebaseFirestore.instance
-                            .collection('branch_initial_cash')
-                            .doc(value)
-                            .get();
-                        final stored = doc.data()?['initial_cash'];
-                        if (!dialogContext.mounted) return;
-                        setDialogState(() {
-                          if (stored is num) {
-                            _initialCashController.text =
-                                stored.toStringAsFixed(2);
-                          } else if (stored is String) {
-                            _initialCashController.text = stored;
-                          } else {
-                            _initialCashController.clear();
-                          }
-                        });
-                      } catch (e) {
-                        debugPrint(
-                          'Error al consultar el efectivo inicial: $e',
-                        );
-                      }
-                    },
-                  ),
-                  const SizedBox(height: 16),
-                  TextField(
-                    controller: _initialCashController,
-                    cursorColor: _kGreenDark,
-                    keyboardType: const TextInputType.numberWithOptions(
-                      decimal: true,
-                    ),
-                    style: const TextStyle(color: Colors.black),
-                    decoration: InputDecoration(
-                      labelText: 'Efectivo inicial',
-                      floatingLabelStyle:
-                          const TextStyle(color: _kGreenDark),
-                      hintText: '00.00',
-                      prefixText: '\$ ',
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: const BorderSide(color: _kBorderLight),
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: const BorderSide(
-                          color: _kGreenDark,
-                          width: 1.5,
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
             actions: [
@@ -1879,7 +2125,6 @@ Widget _pageButton(
   final canPrev = _page > 0;
   final canNext = _page < totalPages - 1;
   const visible = 5;
-
   final maxStart = totalPages > visible ? totalPages - visible : 0;
   final first = (_page - 2).clamp(0, maxStart).toInt();
   final last =
@@ -1928,7 +2173,6 @@ Widget _pageButton(
     final screenSize = MediaQuery.sizeOf(context);
     final dialogWidth = (screenSize.width - 32).clamp(280.0, 850.0);
     final dialogHeight = (screenSize.height - 48).clamp(300.0, 760.0);
-
     await showDialog<void>(
       context: context,
       barrierDismissible: true,
@@ -2033,7 +2277,6 @@ Widget _pageButton(
     final start = _page * _pageSize;
     final end = (start + _pageSize).clamp(0, total).toInt();
     final pageItems = filtered.sublist(start, end);
-
     return Scaffold(
       backgroundColor: _kBackground,
       appBar: const AppHeader(currentRoute: '/cortes'),
@@ -2046,48 +2289,72 @@ Widget _pageButton(
           child: LayoutBuilder(
             builder: (context, constraints) {
               final compact = constraints.maxWidth < 600;
-              return ListView(
-                physics: const AlwaysScrollableScrollPhysics(),
-                padding: EdgeInsets.zero,
+              return Column(
                 children: [
-                  Center(
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 1100),
-                      child: Padding(
-                        padding: EdgeInsets.fromLTRB(
-                          compact ? 12 : 24,
-                          compact ? 14 : 20,
-                          compact ? 12 : 24,
-                          24,
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            _titleBlock(compact),
-                            const SizedBox(height: 18),
-                            _searchField(),
-                            const SizedBox(height: 16),
-                            _filters(),
-                            const SizedBox(height: 18),
-                            if (!_loading && _error == null) ...[
-                              _summaryCards(base),
-                              const SizedBox(height: 18),
-                            ],
-                            _listArea(pageItems),
-                            if (!_loading && _error == null) ...[
-                              const SizedBox(height: 6),
-                              _pagination(
-                                total,
-                                totalPages,
-                                start,
-                                end,
+                  Expanded(
+                    child: ListView(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      padding: EdgeInsets.zero,
+                      children: [
+                        Center(
+                          child: ConstrainedBox(
+                            constraints:
+                                const BoxConstraints(maxWidth: 1100),
+                            child: Padding(
+                              padding: EdgeInsets.fromLTRB(
+                                compact ? 12 : 24,
+                                compact ? 14 : 20,
+                                compact ? 12 : 24,
+                                24,
                               ),
-                            ],
-                          ],
+                              child: Column(
+                                crossAxisAlignment:
+                                    CrossAxisAlignment.start,
+                                children: [
+                                  _titleBlock(compact),
+                                  const SizedBox(height: 18),
+                                  _searchField(),
+                                  const SizedBox(height: 16),
+                                  _filters(),
+                                  const SizedBox(height: 18),
+                                  if (!_loading && _error == null) ...[
+                                    _summaryCards(base),
+                                    const SizedBox(height: 18),
+                                  ],
+                                  _listArea(pageItems),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (!_loading && _error == null)
+                    Container(
+                      width: double.infinity,
+                      color: Colors.white,
+                      child: Center(
+                        child: ConstrainedBox(
+                          constraints:
+                              const BoxConstraints(maxWidth: 1100),
+                          child: Padding(
+                            padding: EdgeInsets.fromLTRB(
+                              compact ? 12 : 24,
+                              8,
+                              compact ? 12 : 24,
+                              10,
+                            ),
+                            child: _pagination(
+                              total,
+                              totalPages,
+                              start,
+                              end,
+                            ),
+                          ),
                         ),
                       ),
                     ),
-                  ),
                 ],
               );
             },
@@ -2097,57 +2364,108 @@ Widget _pageButton(
     );
   }
 }
+class _ThousandsDecimalInputFormatter extends TextInputFormatter {
+  String _format(String value) {
+    if (value.isEmpty) return '';
+    final parts = value.split('.');
+    final integerPart = parts.first;
+    final decimalPart = parts.length > 1 ? parts[1] : null;
+    final groupedInteger = integerPart.replaceAllMapped(
+      RegExp(r'\B(?=(\d{3})+(?!\d))'),
+      (_) => ',',
+    );
+    return decimalPart == null
+        ? groupedInteger
+        : '$groupedInteger.$decimalPart';
+  }
 
+  @override
+  TextEditingValue formatEditUpdate(
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) {
+    final raw = newValue.text.replaceAll(',', '');
+    if (raw.isEmpty) {
+      return newValue.copyWith(
+        text: '',
+        selection: const TextSelection.collapsed(offset: 0),
+      );
+    }
+    if (!RegExp(r'^\d*\.?\d{0,2}$').hasMatch(raw)) {
+      return oldValue;
+    }
+    final formatted = _format(raw);
+    final cursor =
+        newValue.selection.extentOffset.clamp(0, newValue.text.length);
+    final rawBeforeCursor =
+        newValue.text.substring(0, cursor).replaceAll(',', '');
+    final formattedBeforeCursor = _format(rawBeforeCursor);
+    final newCursor =
+        formattedBeforeCursor.length.clamp(0, formatted.length);
+    return TextEditingValue(
+      text: formatted,
+      selection: TextSelection.collapsed(offset: newCursor),
+      composing: TextRange.empty,
+    );
+  }
+}
 class _PressableCard extends StatefulWidget {
-  const _PressableCard({
-    required this.onTap,
-    required this.child,
-    this.padding = EdgeInsets.zero,
-    this.shadowColor = const Color(0x10000000),
-  });
-  final VoidCallback onTap;
   final Widget child;
+  final VoidCallback onTap;
   final EdgeInsetsGeometry padding;
   final Color shadowColor;
+  const _PressableCard({
+    required this.child,
+    required this.onTap,
+    this.padding = const EdgeInsets.all(12),
+    this.shadowColor = const Color(0x0F000000),
+  });
 
   @override
   State<_PressableCard> createState() => _PressableCardState();
 }
+
 class _PressableCardState extends State<_PressableCard> {
   bool _pressed = false;
-  void _set(bool value) {
-    if (_pressed != value) setState(() => _pressed = value);
-  }
 
   @override
   Widget build(BuildContext context) {
-    return Listener(
-      onPointerDown: (_) => _set(true),
-      onPointerUp: (_) => _set(false),
-      onPointerCancel: (_) => _set(false),
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: widget.onTap,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 80),
-          margin: const EdgeInsets.only(bottom: 12),
-          padding: widget.padding,
-          decoration: BoxDecoration(
-            color: Colors.white,
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Listener(
+        onPointerDown: (_) {
+          setState(() => _pressed = true);
+        },
+        onPointerUp: (_) {
+          setState(() => _pressed = false);
+        },
+        onPointerCancel: (_) {
+          setState(() => _pressed = false);
+        },
+        child: Material(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(14),
+          elevation: _pressed ? 0 : 2,
+          shadowColor: widget.shadowColor,
+          child: InkWell(
+            onTap: widget.onTap,
             borderRadius: BorderRadius.circular(14),
-            border: Border.all(
-              color: _pressed ? _kGreenDark : _kBorderLight,
-              width: _pressed ? 1.5 : 1,
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: widget.shadowColor,
-                blurRadius: 6,
-                offset: const Offset(0, 2),
+            splashColor: Colors.transparent,
+            highlightColor: Colors.transparent,
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 120),
+              padding: widget.padding,
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(
+                  color: _pressed ? _kGreenDark : _kBorderLight,
+                  width: _pressed ? 1.5 : 1,
+                ),
               ),
-            ],
+              child: widget.child,
+            ),
           ),
-          child: widget.child,
         ),
       ),
     );
