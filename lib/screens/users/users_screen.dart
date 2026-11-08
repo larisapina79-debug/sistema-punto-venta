@@ -63,8 +63,12 @@ _RoleStyle _roleStyle(String role) {
 }
 
 class UsersScreen extends StatefulWidget {
-  const UsersScreen({super.key});
+  const UsersScreen({
+    super.key,
+    this.initialBranchId,
+  });
 
+  final String? initialBranchId;
   @override
   State<UsersScreen> createState() => _UsersScreenState();
 }

@@ -563,7 +563,7 @@ class _ProductFormScreenState extends State<ProductFormScreen> {
   }
   void _updateSalePrice(String id, String value) {
     if (!_puedeModificarPrecios) return;
-    final normalized = value.replaceAll(',', '.');
+   final normalized = value.replaceAll(',', '');
     final price = double.tryParse(normalized);
     final index = _saleTypes.indexWhere(
       (item) => item['id_type'].toString() == id,
@@ -583,11 +583,16 @@ class _ProductFormScreenState extends State<ProductFormScreen> {
     final controller = _priceControllers[id];
     if (controller == null) return;
     final actual = double.tryParse(
-          controller.text.trim().replaceAll(',', '.'),
+          controller.text.trim().replaceAll(',', ''),
         ) ??
         0;
     final next = (actual + change).clamp(0.0, 999999999.0);
-    final text = next.toStringAsFixed(2);
+    final parts = next.toStringAsFixed(2).split('.');
+    final entero = parts[0].replaceAllMapped(
+      RegExp(r'\B(?=(\d{3})+(?!\d))'),
+      (match) => ',',
+    );
+    final text = '$entero.${parts[1]}';
     controller.value = TextEditingValue(
       text: text,
       selection: TextSelection.collapsed(offset: text.length),
@@ -601,6 +606,23 @@ class _ProductFormScreenState extends State<ProductFormScreen> {
     if (controller == null) {
       return const SizedBox.shrink();
     }
+    void normalizarPrecio() {
+  final valor = double.tryParse(
+    controller.text.replaceAll(',', ''),
+  ) ?? 0.0;
+  final precio = valor.isFinite && valor >= 0 ? valor : 0.0;
+  final partes = precio.toStringAsFixed(2).split('.');
+  final entero = partes[0].replaceAllMapped(
+    RegExp(r'\B(?=(\d{3})+(?!\d))'),
+    (match) => ',',
+  );
+  final texto = '$entero.${partes[1]}';
+  controller.value = TextEditingValue(
+    text: texto,
+    selection: TextSelection.collapsed(offset: texto.length),
+  );
+  _updateSalePrice(id, texto);
+}
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -619,6 +641,14 @@ class _ProductFormScreenState extends State<ProductFormScreen> {
           keyboardType: const TextInputType.numberWithOptions(
             decimal: true,
           ),
+            onTapOutside: (_) {
+            normalizarPrecio();
+            FocusManager.instance.primaryFocus?.unfocus();
+          },
+          onEditingComplete: () {
+            normalizarPrecio();
+            FocusManager.instance.primaryFocus?.unfocus();
+          },
           inputFormatters: [
             FilteringTextInputFormatter.allow(RegExp(r'[\d.,]')),
             LengthLimitingTextInputFormatter(15),
@@ -654,7 +684,7 @@ class _ProductFormScreenState extends State<ProductFormScreen> {
                       child: Icon(
                         Icons.keyboard_arrow_up_rounded,
                         color: _teal,
-                        size: 21,
+                        size: 28,
                       ),
                     ),
                   ),
@@ -668,7 +698,7 @@ class _ProductFormScreenState extends State<ProductFormScreen> {
                       child: Icon(
                         Icons.keyboard_arrow_down_rounded,
                         color: _teal,
-                        size: 21,
+                        size: 28,
                       ),
                     ),
                   ),
@@ -733,6 +763,27 @@ class _ProductFormScreenState extends State<ProductFormScreen> {
     if (controller == null) {
       return const SizedBox.shrink();
     }
+    void normalizarUnidades() {
+    final valor = double.tryParse(
+      controller.text.replaceAll(',', '.'),
+    ) ?? 1.0;
+
+    final unidades = valor.isFinite && valor >= 1
+        ? valor
+        : 1.0;
+
+    final texto = unidades == unidades.roundToDouble()
+        ? unidades.toInt().toString()
+        : unidades.toString();
+
+    controller.value = TextEditingValue(
+      text: texto,
+      selection: TextSelection.collapsed(offset: texto.length),
+    );
+
+    _updateUnitsPerSale(clave, texto);
+    setState(() {});
+  }
     final cantidad = double.tryParse(
           controller.text.trim().replaceAll(',', '.'),
         ) ??
@@ -771,6 +822,14 @@ class _ProductFormScreenState extends State<ProductFormScreen> {
           keyboardType: const TextInputType.numberWithOptions(
             decimal: true,
           ),
+          onTapOutside: (_) {
+          normalizarUnidades();
+          FocusManager.instance.primaryFocus?.unfocus();
+          },
+          onEditingComplete: () {
+            normalizarUnidades();
+            FocusManager.instance.primaryFocus?.unfocus();
+          },
           inputFormatters: [
             FilteringTextInputFormatter.allow(RegExp(r'[\d.,]')),
             LengthLimitingTextInputFormatter(10),
@@ -961,7 +1020,7 @@ class _ProductFormScreenState extends State<ProductFormScreen> {
                       hintText: 'Buscar o crear forma de venta...',
                       prefixIcon: const Icon(
                         Icons.search_rounded,
-                        color: _hintGrey,
+                        color: _teal,
                       ),
                       filled: true,
                       fillColor: Colors.white,
@@ -1029,35 +1088,47 @@ class _ProductFormScreenState extends State<ProductFormScreen> {
                       style: TextStyle(color: _hintGrey),
                     ),
                   )
-                else
+                                else
                   ...options.map((type) {
                     final id = type['id'].toString();
                     final selected = _typeIsSelected(id);
-
-                    return CheckboxListTile(
-                      value: selected,
-                      activeColor: _teal,
-                      controlAffinity: ListTileControlAffinity.leading,
+                    return ListTile(
+                      minLeadingWidth: 0,
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 4,
+                      ),
+                      leading: Container(
+                        width: 27,
+                        height: 27,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: selected ? _teal : Colors.white,
+                          border: selected
+                              ? null
+                              : Border.all(
+                                  color: const Color(0xFFBDBDBD),
+                                  width: 2.7,
+                                ),
+                        ),
+                        child: selected
+                            ? const Icon(
+                                Icons.check_rounded,
+                                size: 20,
+                                color: Colors.white,
+                              )
+                            : null,
+                      ),
                       title: Text(
                         (type['name_type'] ?? '').toString(),
                         style: const TextStyle(
                           color: _textDark,
-                          fontSize: 14,
+                          fontSize: 15,
                         ),
                       ),
-                      subtitle: selected
-                          ? const Text(
-                              'Seleccionada',
-                              style: TextStyle(
-                                color: _teal,
-                                fontSize: 12,
-                              ),
-                            )
-                          : null,
-                      onChanged: _saving
+                      onTap: _saving
                           ? null
-                          : (value) =>
-                              _toggleSaleType(type, value ?? false),
+                          : () => _toggleSaleType(type, !selected),
                     );
                   }),
                 const SizedBox(height: 8),
@@ -1514,7 +1585,7 @@ class _ProductFormScreenState extends State<ProductFormScreen> {
                     hintText: hint,
                     prefixIcon: const Icon(
                       Icons.search_rounded,
-                      color: _hintGrey,
+                      color: _teal,
                     ),
                     filled: true,
                     fillColor: Colors.white,
@@ -1973,65 +2044,59 @@ class _ProductFormScreenState extends State<ProductFormScreen> {
                 children: _branches.map((branch) {
                   final id = branch['id'].toString();
                   final selected = _selectedBranchIds.contains(id);
-                  return CheckboxListTile(
-                    dense: true,
-                    activeColor: _teal,
-                    value: selected,
-                    title: Text(
-                      (branch['branch_name'] ?? 'Sucursal').toString(),
-                      style: const TextStyle(color: _textDark),
+                  return ListTile(
+                  dense: true,
+                  minLeadingWidth: 0,
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
+                  leading: Container(
+                    width: 27,
+                    height: 27,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: selected ? _teal : Colors.white,
+                      border: selected
+                          ? null
+                          : Border.all(
+                              color: const Color(0xFFBDBDBD),
+                              width: 2.7,
+                            ),
                     ),
-                    onChanged: _saving
-                        ? null
-                        : (value) {
-                            setState(() {
-                              if (value == true) {
-                                _selectedBranchIds.add(id);
-                                _stockControllersByBranch.putIfAbsent(
-                                  id,
-                                  () => TextEditingController(text: '0'),
-                                );
-                              } else if (_selectedBranchIds.length > 1) {
-                                _selectedBranchIds.remove(id);
-                              }
-                            });
-                            _clearMessages();
-                          },
-                  );
+                    child: selected
+                        ? const Icon(
+                            Icons.check_rounded,
+                            size: 20,
+                            color: Colors.white,
+                          )
+                        : null,
+                  ),
+                  title: Text(
+                    (branch['branch_name'] ?? 'Sucursal').toString(),
+                    style: const TextStyle(
+                      color: _textDark,
+                      fontSize: 15,
+                    ),
+                  ),
+                  onTap: _saving
+                      ? null
+                      : () {
+                          setState(() {
+                            if (!selected) {
+                              _selectedBranchIds.add(id);
+                              _stockControllersByBranch.putIfAbsent(
+                                id,
+                                () => TextEditingController(text: '0'),
+                              );
+                            } else if (_selectedBranchIds.length > 1) {
+                              _selectedBranchIds.remove(id);
+                            }
+                          });
+                          _clearMessages();
+                        },
+                );
                 }).toList(),
               ),
             ),
-        ] else ...[
-          const Text(
-            'Sucursal asignada',
-            style: TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w500,
-              color: _textDark,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(
-              horizontal: 14,
-              vertical: 14,
-            ),
-            decoration: BoxDecoration(
-              color: const Color(0xFFF7F7F7),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: _borderGrey),
-            ),
-            child: Text(
-              _branches.isEmpty
-                  ? 'No tienes una sucursal asignada'
-                  : (_branches.first['branch_name'] ?? 'Sucursal').toString(),
-              style: const TextStyle(
-                color: _textDark,
-                fontSize: 14,
-              ),
-            ),
-          ),
         ],
         const SizedBox(height: 16),
         ..._selectedBranchIds.map((id) {

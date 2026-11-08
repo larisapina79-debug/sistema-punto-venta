@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import '../../models/cash_closure_model.dart';
 import '../../services/cash_closure_service.dart';
+import '../orders/orders_screen.dart';
 
 const Color primary = Color(0xFF61B8C4);
 const Color background = Color(0xFFF5F7F9);
@@ -43,6 +44,7 @@ class _CashClosureDetailScreenState
     final results = await Future.wait<dynamic>([
       _service.calculatePaymentMethodSummary(closure.idClosure),
       _loadBranchInfo(closure.idBranch),
+      _service.calculateOrderPaymentsSummary(closure.idClosure),
     ]);
 
     return _DetailData(
@@ -50,6 +52,7 @@ class _CashClosureDetailScreenState
       payments: Map<String, double>.from(results[0] as Map),
       branchName: (results[1] as _BranchInfo).name,
       branchImageUrl: (results[1] as _BranchInfo).imageUrl,
+      orderPayments: Map<String, dynamic>.from(results[2] as Map),
     );
   }
 
@@ -151,19 +154,15 @@ class _CashClosureDetailScreenState
     await future;
   }
 
+ 
   String _money(double value) {
     final negative = value < 0;
     final parts = value.abs().toStringAsFixed(2).split('.');
-    final digits = parts[0];
-    final formatted = StringBuffer();
-    for (int i = 0; i < digits.length; i++) {
-      formatted.write(digits[i]);
-      final remaining = digits.length - i - 1;
-      if (remaining > 0 && remaining % 3 == 0) {
-        formatted.write(',');
-      }
-    }
-    return '${negative ? '-' : ''}\$${formatted.toString()}.${parts[1]}';
+    final entero = parts[0].replaceAllMapped(
+      RegExp(r'\B(?=(\d{3})+(?!\d))'),
+      (match) => ',',
+    );
+    return '${negative ? '-' : ''}\$$entero.${parts[1]}';
   }
 
   String _date(DateTime? date) {
@@ -179,37 +178,7 @@ class _CashClosureDetailScreenState
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: background,
-      appBar: AppBar(
-        centerTitle: true,
-        title: const Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              'Resumen de caja',
-              style: TextStyle(
-                color: dark,
-                fontWeight: FontWeight.w700,
-                fontSize: 18,
-              ),
-            ),
-            SizedBox(height: 3),
-            Text(
-              'Consulta los movimientos y el estado de tu caja',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: muted,
-                fontSize: 11,
-                fontWeight: FontWeight.w400,
-              ),
-            ),
-          ],
-        ),
-        backgroundColor: Colors.white,
-        surfaceTintColor: Colors.white,
-        elevation: 0,
-        iconTheme: const IconThemeData(color: primary),
-      ),
+     backgroundColor: Colors.white,
       body: FutureBuilder<_DetailData>(
         future: _future,
         builder: (context, snapshot) {
@@ -263,11 +232,57 @@ class _CashClosureDetailScreenState
                     child: ListView(
                       padding: const EdgeInsets.all(16),
                       children: [
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: TextButton.icon(
+                            onPressed: () => Navigator.of(context).maybePop(),
+                            style: TextButton.styleFrom(
+                              foregroundColor: primary,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 4,
+                                vertical: 6,
+                              ),
+                            ),
+                            icon: const Icon(
+                              Icons.arrow_back_rounded,
+                              size: 20,
+                            ),
+                            label: const Text(
+                              'Regresar',
+                              style: TextStyle(
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        const Center(
+                          child: Text(
+                            'Resumen de caja',
+                            style: TextStyle(
+                              fontSize: 24,
+                              fontWeight: FontWeight.bold,
+                              color: Color(0xFF263238),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        const Text(
+                          'Consulta los movimientos y el estado de tu caja',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: muted,
+                            fontSize: 14,
+                          ),
+                        ),
+                        const SizedBox(height: 35),
                         _header(data),
                         const SizedBox(height: 14),
                         _initial(data.closure),
                         const SizedBox(height: 14),
                         _payments(data),
+                        const SizedBox(height: 14),
+                        _orderPayments(data),
                         const SizedBox(height: 14),
                         _closing(data.closure),
                         const SizedBox(height: 14),
@@ -547,6 +562,90 @@ class _CashClosureDetailScreenState
     );
   }
 
+  Widget _orderPayments(_DetailData data) {
+    final summary = data.orderPayments;
+    final count = (summary['order_count'] as num?)?.toInt() ?? 0;
+    final total =
+        (summary['total_received'] as num?)?.toDouble() ?? 0;
+    final methods = Map<String, double>.from(
+      summary['payment_methods'] as Map? ?? {},
+    );
+    final entries = methods.entries.toList()
+      ..sort((a, b) => a.key.compareTo(b.key));
+    return _card(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _title('Cobros de pedidos'),
+          const SizedBox(height: 18),
+          Row(
+          children: [
+            const Expanded(
+              child: Text(
+                'Pedidos con cobros',
+                style: TextStyle(
+                  color: dark,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+            TextButton.icon(
+              onPressed: count == 0
+                  ? null
+                  : () {
+                      final orderIds = List<String>.from(
+                        summary['order_ids'] ?? [],
+                      );
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => OrdersScreen(
+                            cashClosureOrderIds: orderIds.toSet(),
+                          ),
+                        ),
+                      );
+                    },
+              iconAlignment: IconAlignment.end,
+              icon: const Icon(Icons.chevron_right, size: 20),
+              label: Text(
+                '$count',
+                style: const TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ],
+        ),
+          const SizedBox(height: 16),
+          if (entries.isEmpty)
+            const Text(
+              'No hay cobros de pedidos registrados para esta caja.',
+              style: TextStyle(color: muted),
+            )
+          else
+            ...entries.map((entry) {
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: _row(
+                  entry.key,
+                  _money(entry.value),
+                ),
+              );
+            }),
+          const Divider(height: 28),
+          _row(
+            'Total recibido por pedidos',
+            _money(total),
+            prominent: true,
+            valueColor: green,
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _closing(CashClosureModel c) {
     final difference = c.difference;
     final balanced = difference == 0;
@@ -756,10 +855,12 @@ class _DetailData {
   final Map<String, double> payments;
   final String branchName;
   final String? branchImageUrl;
+  final Map<String, dynamic> orderPayments;
   const _DetailData({
     required this.closure,
     required this.payments,
     required this.branchName,
     required this.branchImageUrl,
+    required this.orderPayments,
   });
 }

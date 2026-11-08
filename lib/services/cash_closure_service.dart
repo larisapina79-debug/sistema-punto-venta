@@ -6,6 +6,8 @@ class CashClosureService {
       _db.collection('cash_closures');
   CollectionReference<Map<String, dynamic>> get _sales =>
       _db.collection('sales');
+  CollectionReference<Map<String, dynamic>> get _orders =>
+      _db.collection('orders');
   Future<String> openCashRegister({
     required String idBranch,
     required String idUser,
@@ -229,6 +231,130 @@ class CashClosureService {
     }
     return totals;
   }
+  
+  Future<Map<String, dynamic>> calculateOrderPaymentsSummary(
+    String idClosure,
+  ) async {
+    final closure = await getCashClosureById(idClosure);
+    if (closure == null) {
+      throw Exception('No se encontró la caja.');
+    }
+    final start = closure.openingDate;
+    final end = closure.closingDate ?? DateTime.now();
+    final userId = closure.idUsers.trim();
+    final branchId = closure.idBranch.trim();
+    final methodsSnapshot =
+        await _db.collection('payment_methods').get();
+    final methodNames = <String, String>{};
+    for (final doc in methodsSnapshot.docs) {
+      final name =
+          (doc.data()['payment_methods_name'] ?? '')
+              .toString()
+              .trim();
+      if (name.isNotEmpty) {
+        methodNames[doc.id] = name;
+      }
+    }
+    final totals = <String, double>{};
+    final orderIds = <String>[];
+    double totalReceived = 0;
+    bool inPeriod(dynamic value) {
+      DateTime? date;
+      if (value is Timestamp) {
+        date = value.toDate();
+      } else if (value is DateTime) {
+        date = value;
+      }
+      if (date == null) return false;
+      return !date.isBefore(start) && !date.isAfter(end);
+    }
+    String resolveMethod(Map payment) {
+      final id =
+          (payment['id_payment_methods'] ?? '')
+              .toString()
+              .trim();
+      if (id.isNotEmpty && methodNames.containsKey(id)) {
+        return methodNames[id]!;
+      }
+      final name = (
+        payment['payment_methods_name'] ??
+        payment['name'] ??
+        payment['payment_method'] ??
+        ''
+      ).toString().trim();
+      return name.isNotEmpty
+          ? name
+          : 'Método no identificado';
+    }
+    double addMethods(dynamic value) {
+      if (value is! List) return 0;
+      double subtotal = 0;
+      for (final item in value) {
+        if (item is! Map) continue;
+        final amount = _toDouble(item['amount']);
+        if (!amount.isFinite || amount <= 0) continue;
+        final name = resolveMethod(item);
+        totals[name] = (totals[name] ?? 0) + amount;
+        subtotal += amount;
+      }
+      return subtotal;
+    }
+    final snapshot = await _orders.get();
+    for (final doc in snapshot.docs) {
+      final order = doc.data();
+      final branchValue = order['id_branches'];
+      final orderBranch = branchValue is DocumentReference
+          ? branchValue.id
+          : branchValue is Map
+              ? (branchValue['id_branches'] ??
+                      branchValue['id'] ??
+                      '')
+                  .toString()
+                  .trim()
+              : (branchValue ?? '').toString().trim();
+      if (orderBranch != branchId) continue;
+      double receivedForOrder = 0;
+      final initialUser = (
+        order['initial_payment_registered_by_id'] ??
+        order['id_users'] ??
+        ''
+      ).toString().trim();
+      final initialDate =
+          order['initial_payment_registered_at'] ??
+          order['created_at'];
+      if (initialUser == userId && inPeriod(initialDate)) {
+        final initialMethods =
+            order['initial_payment_methods'] ??
+            order['payment_method'];
+        receivedForOrder += addMethods(initialMethods);
+      }
+      final history = order['delivery_payment_history'];
+      if (history is List) {
+        for (final entry in history) {
+          if (entry is! Map) continue;
+          final paymentUser =
+              (entry['registered_by_id'] ?? '')
+                  .toString()
+                  .trim();
+          if (paymentUser != userId) continue;
+          if (!inPeriod(entry['registered_at'])) continue;
+          receivedForOrder +=
+              addMethods(entry['payment_methods']);
+        }
+      }
+      if (receivedForOrder > 0) {
+        orderIds.add(doc.id);
+        totalReceived += receivedForOrder;
+      }
+    }
+    return {
+      'order_count': orderIds.length,
+      'order_ids': orderIds,
+      'total_received': totalReceived,
+      'payment_methods': totals,
+    };
+  }
+
   double _toDouble(dynamic value) {
     if (value is num) return value.toDouble();
     if (value is String) {

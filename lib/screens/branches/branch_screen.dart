@@ -77,19 +77,21 @@ class _BranchesScreenState extends State<BranchesScreen> {
   }
 
   void _openUsers(String id, String nombre) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        settings: RouteSettings(
-          arguments: {
-            'branchId': id,
-            'branchName': nombre,
-          },
-        ),
-        builder: (_) => UsersScreen(),
+  Navigator.push(
+    context,
+    MaterialPageRoute(
+      settings: RouteSettings(
+        arguments: {
+          'branchId': id,
+          'branchName': nombre,
+        },
       ),
-    );
-  }
+      builder: (_) => UsersScreen(
+        initialBranchId: id,
+      ),
+    ),
+  );
+}
 
   void _openProducts(String id, String nombre) {
   Navigator.push(
@@ -101,7 +103,9 @@ class _BranchesScreenState extends State<BranchesScreen> {
           'branchName': nombre,
         },
       ),
-      builder: (_) => const ProductScreen(),
+      builder: (_) => ProductScreen(
+        initialBranchId: id,
+      ),
     ),
   );
 }
@@ -530,31 +534,27 @@ class _BranchesScreenState extends State<BranchesScreen> {
     );
   }
 
-  Widget _branchLogo(String logo, String nombre) {
-    final limpio = nombre.trim();
-    final inicial = limpio.isEmpty ? 'S' : limpio[0].toUpperCase();
-    final vacio = Center(
-      child: Text(
-        inicial,
-        style: const TextStyle(
-          color: _accent,
-          fontSize: 32,
-          fontWeight: FontWeight.w700,
-        ),
-      ),
-    );
-    return Container(
-      width: 72,
-      height: 72,
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: _borderGrey),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: _imagenLogo(logo, vacio),
-    );
-  }
+  
+Widget _branchLogo(String logo, String nombre) {
+  const vacio = Center(
+    child: Icon(
+      Icons.add_photo_alternate_outlined,
+      color: _accent,
+      size: 35,
+    ),
+  );
+  return Container(
+    width: 72,
+    height: 72,
+    decoration: BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(12),
+      border: Border.all(color: _borderGrey),
+    ),
+    clipBehavior: Clip.antiAlias,
+    child: _imagenLogo(logo, vacio),
+  );
+}
 
   Widget _stat(
     String value,
@@ -690,104 +690,180 @@ class _BranchesScreenState extends State<BranchesScreen> {
     );
   }
 
-  Widget _branchCard(
-    Map<String, dynamic> branch,
-    int numero,
-  ) {
-    final id = (branch['id'] ?? '').toString();
-    final nombre =
-        (branch['branch_name'] ?? 'Sin nombre').toString();
-    final direccion =
-        (branch['branch_address'] ?? 'Sin dirección').toString();
-    final logo = (branch['branch_logo'] ?? '').toString();
-    final activo = branch['branch_status'] == true;
-    return _PressableCard(
-      onTap: () => _openDetail(id),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(13),
-        child: FutureBuilder<_BranchStats>(
-          future: _loadStats(id),
-          builder: (context, snap) {
-            final stats = snap.data;
-            final users = stats == null ? '—' : '${stats.users}';
-            final products = stats == null ? '—' : '${stats.products}';
-            final info = Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  nombre,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w700,
-                    color: Color(0xFF171717),
-                  ),
+
+
+Widget _branchCard(
+  Map<String, dynamic> branch,
+  int numero,
+) {
+  final id = (branch['id'] ?? '').toString();
+  final nombre =
+      (branch['branch_name'] ?? 'Sin nombre').toString();
+  final direccion =
+      (branch['branch_address'] ?? 'Sin dirección').toString();
+  final logo = (branch['branch_logo'] ?? '').toString();
+  final activo = branch['branch_status'] == true;
+
+  return _PressableCard(
+    onTap: () => _openDetail(id),
+    child: ClipRRect(
+      borderRadius: BorderRadius.circular(13),
+      child: FutureBuilder<_BranchStats>(
+        future: _loadStats(id),
+        builder: (context, snap) {
+          final stats = snap.data;
+          final users = stats == null ? '—' : '${stats.users}';
+          final products =
+              stats == null ? '—' : '${stats.products}';
+
+          final info = Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                nombre,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF171717),
                 ),
-                const SizedBox(height: 5),
-                Text(
-                  direccion,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 13,
-                    color: Color(0xFF666666),
-                  ),
+              ),
+              const SizedBox(height: 5),
+              Text(
+                direccion,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 13,
+                  color: Color(0xFF666666),
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  'Sucursal $numero',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 13,
-                    color: Color(0xFF888888),
-                  ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Sucursal $numero',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 13,
+                  color: Color(0xFF888888),
                 ),
-              ],
-            );
-            return LayoutBuilder(
-              builder: (context, c) {
-                final wide = c.maxWidth >= 1040;
-                if (wide) {
-                  return Stack(
-                    children: [
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(
-                          54, 12, 12, 12,
+              ),
+            ],
+          );
+
+          return LayoutBuilder(
+            builder: (context, c) {
+              final wide = c.maxWidth >= 1040;
+              final mobile =
+                  MediaQuery.sizeOf(context).width < 600;
+
+              // ESCRITORIO: SIN CAMBIOS
+              if (wide) {
+                return Stack(
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(
+                        54, 12, 12, 12,
+                      ),
+                      child: Row(
+                        crossAxisAlignment:
+                            CrossAxisAlignment.center,
+                        children: [
+                          _branchLogo(logo, nombre),
+                          const SizedBox(width: 20),
+                          Expanded(child: info),
+                          const SizedBox(width: 14),
+                          _stat(
+                            users,
+                            'Usuarios',
+                            onTap: () =>
+                                _openUsers(id, nombre),
+                          ),
+                          const SizedBox(width: 10),
+                          _stat(
+                            products,
+                            'Productos',
+                            onTap: () =>
+                                _openProducts(id, nombre),
+                          ),
+                          const SizedBox(width: 12),
+                          _printButton(branch),
+                          const SizedBox(width: 8),
+                          _statusControl(branch, activo),
+                          const SizedBox(width: 12),
+                          const Text(
+                            'Ver detalles',
+                            style: TextStyle(
+                              color: _accent,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const Icon(
+                            Icons.chevron_right_rounded,
+                            color: _accent,
+                            size: 22,
+                          ),
+                        ],
+                      ),
+                    ),
+                    Positioned(
+                      left: 26,
+                      top: 24,
+                      bottom: 24,
+                      width: 4,
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          color: activo ? _accent : _red,
+                          borderRadius:
+                              BorderRadius.circular(4),
                         ),
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.center,
+                      ),
+                    ),
+                  ],
+                );
+              }
+
+              // MOVIL Y TABLET
+              return Stack(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(
+                      30, 12, 12, 12,
+                    ),
+                    child: Column(
+                      crossAxisAlignment:
+                          CrossAxisAlignment.stretch,
+                      children: [
+                        Row(
+                          crossAxisAlignment:
+                              CrossAxisAlignment.center,
                           children: [
                             _branchLogo(logo, nombre),
-                            const SizedBox(width: 20),
+                            const SizedBox(width: 12),
+
                             Expanded(child: info),
-                            const SizedBox(width: 14),
-                            _stat(
-                              users,
-                              'Usuarios',
-                              onTap: () => _openUsers(id, nombre),
-                            ),
-                            const SizedBox(width: 10),
-                            _stat(
-                              products,
-                              'Productos',
-                              onTap: () => _openProducts(id, nombre),
-                            ),
-                            const SizedBox(width: 12),
-                            _printButton(branch),
-                            const SizedBox(width: 8),
-                            _statusControl(branch, activo),
-                            const SizedBox(width: 12),
-                            const Text(
-                              'Ver detalles',
-                              style: TextStyle(
-                                color: _accent,
-                                fontSize: 13,
-                                fontWeight: FontWeight.w600,
+
+                            // SOLO MOVIL
+                            if (mobile) ...[
+                              InkWell(
+                                onTap: () =>
+                                    _openDetail(id),
+                                child: const Text(
+                                  'Ver detalles',
+                                  style: TextStyle(
+                                    color: _accent,
+                                    fontSize: 12,
+                                    fontWeight:
+                                        FontWeight.w600,
+                                  ),
+                                ),
                               ),
-                            ),
+                              const SizedBox(width: 4),
+                            ],
+
                             const Icon(
                               Icons.chevron_right_rounded,
                               color: _accent,
@@ -795,93 +871,71 @@ class _BranchesScreenState extends State<BranchesScreen> {
                             ),
                           ],
                         ),
-                      ),
-                      Positioned(
-                        left: 26,
-                        top: 24,
-                        bottom: 24,
-                        width: 4,
-                        child: DecoratedBox(
-                          decoration: BoxDecoration(
-                            color: activo ? _accent : _red,
-                            borderRadius: BorderRadius.circular(4),
+
+                        const SizedBox(height: 12),
+
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _stat(
+                                users,
+                                'Usuarios',
+                                onTap: () =>
+                                    _openUsers(id, nombre),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: _stat(
+                                products,
+                                'Productos',
+                                onTap: () =>
+                                    _openProducts(id, nombre),
+                              ),
+                            ),
+                          ],
+                        ),
+
+                        const SizedBox(height: 8),
+
+                        _printButton(branch),
+
+                        const SizedBox(height: 8),
+
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: _statusControl(
+                            branch,
+                            activo,
                           ),
                         ),
-                      ),
-                    ],
-                  );
-                }
-                return Stack(
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(30, 12, 12, 12),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          Row(
-                            crossAxisAlignment: CrossAxisAlignment.center,
-                            children: [
-                              _branchLogo(logo, nombre),
-                              const SizedBox(width: 12),
-                              Expanded(child: info),
-                              const Icon(
-                                Icons.chevron_right_rounded,
-                                color: _accent,
-                                size: 22,
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 12),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: _stat(
-                                  users,
-                                  'Usuarios',
-                                  onTap: () => _openUsers(id, nombre),
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: _stat(
-                                  products,
-                                  'Productos',
-                                  onTap: () => _openProducts(id, nombre),
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 8),
-                          _printButton(branch),
-                          const SizedBox(height: 8),
-                          Align(
-                            alignment: Alignment.centerRight,
-                            child: _statusControl(branch, activo),
-                          ),
-                        ],
+                      ],
+                    ),
+                  ),
+
+                  Positioned(
+                    left: 12,
+                    top: 12,
+                    bottom: 12,
+                    width: 4,
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: activo ? _accent : _red,
+                        borderRadius:
+                            BorderRadius.circular(4),
                       ),
                     ),
-                    Positioned(
-                      left: 12,
-                      top: 12,
-                      bottom: 12,
-                      width: 4,
-                      child: DecoratedBox(
-                        decoration: BoxDecoration(
-                          color: activo ? _accent : _red,
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                      ),
-                    ),
-                  ],
-                );
-              },
-            );
-          },
-        ),
+                  ),
+                ],
+              );
+            },
+          );
+        },
       ),
-    );
-  }
+    ),
+  );
+}
+
 
   Widget _pageButton(
     String label, {

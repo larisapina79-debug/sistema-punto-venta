@@ -83,7 +83,7 @@ class _CloseCashRegisterScreenState
   static const double _contentMaxWidth = 520;
   final CashClosureService _service = CashClosureService();
   final FirebaseFirestore _db = FirebaseFirestore.instance;
-  final TextEditingController _cashController = TextEditingController();
+  final TextEditingController _cashController = TextEditingController(text: '0.00');
   final FocusNode _amountFocusNode = FocusNode();
   final TextEditingController _commentController = TextEditingController();
   final Map<double, int> _counts = {};
@@ -125,8 +125,12 @@ class _CloseCashRegisterScreenState
     _loadCashData();
   }
   void _onAmountFocusChanged() {
-    if (mounted) setState(() {});
+  if (!_amountFocusNode.hasFocus) {
+    _normalizarEfectivo();
   }
+
+  if (mounted) setState(() {});
+}
 
   @override
   void dispose() {
@@ -355,7 +359,14 @@ class _CloseCashRegisterScreenState
         .toInt();
     _setCount(denomination, next);
   }
-
+  void _fillCountsFromAmount(double amount) {
+    var remaining = (amount * 100).round();
+    for (final d in [..._billDenoms, ..._coinDenoms]) {
+      final cents = (d * 100).round();
+      _setCount(d, remaining ~/ cents);
+      remaining = remaining % cents;
+    }
+  }
   void _onCountTyped(double denomination, String text) {
     final value = int.tryParse(text) ?? 0;
     setState(() => _counts[denomination] = value);
@@ -749,7 +760,6 @@ class _CloseCashRegisterScreenState
     final hour = date.hour.toString().padLeft(2, '0');
     final minute = date.minute.toString().padLeft(2, '0');
     final second = date.second.toString().padLeft(2, '0');
-
     return '$hour:$minute:$second';
   }
 
@@ -893,23 +903,33 @@ class _CloseCashRegisterScreenState
           ),
           child: Row(
             children: [
-              Expanded(
+             Expanded(
                 child: _cashModeOption(
                   title: 'Contar efectivo',
                   selected: !_typeTotal,
                   onTap: () {
                     FocusScope.of(context).unfocus();
+                    final typed = _parseCash(_cashController.text) ?? 0;
+                    if (_typeTotal && _denomTotal == 0 && typed > 0) {
+                      _fillCountsFromAmount(typed);
+                    }
                     setState(() => _typeTotal = false);
                   },
                 ),
               ),
               Expanded(
-                child: _cashModeOption(
-                  title: 'Ingresar importe',
-                  selected: _typeTotal,
-                  onTap: () => setState(() => _typeTotal = true),
-                ),
+              child: _cashModeOption(
+                title: 'Ingresar importe',
+                selected: _typeTotal,
+                onTap: () {
+                  if (_denomTotal > 0) {
+                    _cashController.text = _denomTotal.toStringAsFixed(2);
+                    _normalizarEfectivo();
+                  }
+                  setState(() => _typeTotal = true);
+                },
               ),
+            ),
             ],
           ),
         ),
@@ -1207,7 +1227,6 @@ class _CloseCashRegisterScreenState
                 ],
               );
             }
-
             return Row(
               children: [
                 Expanded(child: backButton),
@@ -1544,6 +1563,42 @@ class _CloseCashRegisterScreenState
       ),
     );
   }
+ void _normalizarEfectivo() {
+    final texto = _cashController.text
+        .replaceAll(',', '')
+        .replaceAll('\$', '')
+        .trim();
+    final valor = double.tryParse(texto) ?? 0.0;
+    final importe = valor.isFinite
+        ? valor.clamp(0.0, 999999999.99).toDouble()
+        : 0.0;
+    final partes = importe.toStringAsFixed(2).split('.');
+    final entero = partes[0].replaceAllMapped(
+      RegExp(r'\B(?=(\d{3})+(?!\d))'),
+      (_) => ',',
+    );
+    final resultado = '$entero.${partes[1]}';
+    _updatingController = true;
+    _cashController.value = TextEditingValue(
+      text: resultado,
+      selection: TextSelection.collapsed(
+        offset: resultado.length,
+      ),
+    );
+    _updatingController = false;
+    setState(() {
+      _amount = importe.toStringAsFixed(2);
+      _countedCash = importe;
+    });
+    }
+    void _cambiarEfectivo(double cambio) {
+      final actual = _parseCash(_cashController.text) ?? 0.0;
+      final nuevo = (actual + cambio)
+          .clamp(0.0, 999999999.99)
+          .toDouble();
+      _cashController.text = nuevo.toStringAsFixed(2);
+      _normalizarEfectivo();
+    }
 
   Widget _amountField() {
     final focused = _amountFocusNode.hasFocus;
@@ -1573,11 +1628,16 @@ class _CloseCashRegisterScreenState
             child: TextField(
               controller: _cashController,
               focusNode: _amountFocusNode,
+              onTap: () {
+            _cashController.selection = TextSelection(
+              baseOffset: 0,
+              extentOffset: _cashController.text.length,
+              );
+            },
               keyboardType: const TextInputType.numberWithOptions(
                 decimal: true,
               ),
               onChanged: _onAmountChanged,
-              enableInteractiveSelection: false,
               inputFormatters: [
                 FilteringTextInputFormatter.allow(
                   RegExp(r'[0-9.]'),
@@ -1599,21 +1659,39 @@ class _CloseCashRegisterScreenState
               ),
             ),
           ),
-          if (_amount.isNotEmpty)
-            GestureDetector(
-              onTap: () {
-                _updateAmount('');
-                _amountFocusNode.requestFocus();
-              },
-              child: const Padding(
-                padding: EdgeInsets.only(right: 15),
-                child: Icon(
-                  Icons.close_rounded,
-                  color: _kGreen,
-                  size: 20,
+        SizedBox(
+          width: 40,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              InkWell(
+                onTap: () => _cambiarEfectivo(1),
+                child: const SizedBox(
+                  width: 40,
+                  height: 20,
+                  child: Icon(
+                    Icons.keyboard_arrow_up_rounded,
+                    color: _kGreen,
+                    size: 20,
+                  ),
                 ),
               ),
-            ),
+              InkWell(
+                onTap: () => _cambiarEfectivo(-1),
+                child: const SizedBox(
+                  width: 40,
+                  height: 20,
+                  child: Icon(
+                    Icons.keyboard_arrow_down_rounded,
+                    color: _kGreen,
+                    size: 20,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
         ],
       ),
     );

@@ -61,7 +61,7 @@ class _StartCashRegisterScreenState
   OverlayEntry? _alertEntry;
   Timer? _alertTimer;
   final TextEditingController _amountController =
-      TextEditingController();
+       TextEditingController(text: '0.00');
   final FocusNode _amountFocusNode = FocusNode();
   final List<int> _billDenoms = [1000, 500, 200, 100, 50, 20];
   final List<double> _coinDenoms = [10, 5, 2, 1, 0.5];
@@ -523,6 +523,15 @@ class _StartCashRegisterScreenState
     final current = _counts[denomination] ?? 0;
     _setCount(denomination, current + amount);
   }
+   void _fillCountsFromAmount(double amount) {
+    var remaining = (amount * 100).round();
+    final all = [..._billDenoms.map((e) => e.toDouble()), ..._coinDenoms];
+    for (final d in all) {
+      final cents = (d * 100).round();
+      _setCount(d, remaining ~/ cents);
+      remaining = remaining % cents;
+    }
+  }
   void _onCountTyped(double denomination, String value) {
     setState(() {
       _counts[denomination] =
@@ -954,6 +963,9 @@ class _StartCashRegisterScreenState
               title: 'Contar efectivo',
               selected: _countMode,
               onTap: () {
+                if (!_countMode && _countTotal == 0 && _manualAmount > 0) {
+                  _fillCountsFromAmount(_manualAmount);
+                }
                 setState(() {
                   _countMode = true;
                 });
@@ -964,11 +976,15 @@ class _StartCashRegisterScreenState
             child: _modeOption(
               title: 'Ingresar importe',
               selected: !_countMode,
-              onTap: () {
-                setState(() {
-                  _countMode = false;
-                });
-              },
+                  onTap: () {
+              if (_countTotal > 0) {
+                _amountController.text =
+                    _formatMoney(_countTotal).replaceAll('\$', '');
+              }
+              setState(() {
+                _countMode = false;
+              });
+            },
             ),
           ),
         ],
@@ -1017,7 +1033,37 @@ class _StartCashRegisterScreenState
     );
   }
 
-  Widget _manualAmountField() {
+ Widget _manualAmountField() {
+  void normalizarImporte() {
+    final texto = _amountController.text
+        .replaceAll(',', '')
+        .replaceAll('\$', '')
+        .trim();
+    final valor = double.tryParse(texto) ?? 0.0;
+    final importe = valor.isFinite
+        ? valor.clamp(0.0, 999999999.99).toDouble()
+        : 0.0;
+    final partes = importe.toStringAsFixed(2).split('.');
+    final entero = partes[0].replaceAllMapped(
+      RegExp(r'\B(?=(\d{3})+(?!\d))'),
+      (_) => ',',
+    );
+    final resultado = '$entero.${partes[1]}';
+    _amountController.value = TextEditingValue(
+      text: resultado,
+      selection: TextSelection.collapsed(
+        offset: resultado.length,
+      ),
+    );
+    setState(() {});
+  }
+  void cambiarImporte(double cambio) {
+    final nuevo = (_manualAmount + cambio)
+        .clamp(0.0, 999999999.99)
+        .toDouble();
+    _amountController.text = nuevo.toStringAsFixed(2);
+    normalizarImporte();
+  }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1036,10 +1082,17 @@ class _StartCashRegisterScreenState
           keyboardType: const TextInputType.numberWithOptions(
             decimal: true,
           ),
+         onTapOutside: (_) {
+            normalizarImporte();
+            _amountFocusNode.unfocus();
+          },
+          onEditingComplete: () {
+            normalizarImporte();
+            _amountFocusNode.unfocus();
+          },
           inputFormatters: [
-            FilteringTextInputFormatter.allow(
-              RegExp(r'^\d{0,9}(\.\d{0,2})?$'),
-            ),
+          FilteringTextInputFormatter.allow(RegExp(r'[\d.,]')),
+          LengthLimitingTextInputFormatter(16),
           ],
           onChanged: (_) {
             setState(() {});
@@ -1047,7 +1100,43 @@ class _StartCashRegisterScreenState
           decoration: InputDecoration(
             prefixText: '\$ ',
             hintText: '0.00',
-            filled: true,
+          suffixIconConstraints: const BoxConstraints(
+            minWidth: 40,
+            minHeight: 0,
+          ),
+          suffixIcon: SizedBox(
+            width: 40,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                InkWell(
+                  onTap: () => cambiarImporte(1),
+                  child: const SizedBox(
+                    width: 40,
+                    height: 20,
+                    child: Icon(
+                      Icons.keyboard_arrow_up_rounded,
+                      color: _green,
+                      size: 20,
+                    ),
+                  ),
+                ),
+                InkWell(
+                  onTap: () => cambiarImporte(-1),
+                  child: const SizedBox(
+                    width: 40,
+                    height: 20,
+                    child: Icon(
+                      Icons.keyboard_arrow_down_rounded,
+                      color: _green,
+                      size: 20,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
             fillColor: _fieldBackground,
             contentPadding: const EdgeInsets.symmetric(
               horizontal: 14,

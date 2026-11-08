@@ -6,7 +6,6 @@ import '../../services/user_services.dart';
 import '../../widgets/app_header.dart';
 import '../../widgets/save.dart';
 import '../../widgets/cancel.dart';
-import '../../widgets/status.dart';
 import '../../widgets/edit.dart';
 
 const _green = Color(0xFF0F6B1F);
@@ -718,19 +717,7 @@ class _UserDetailScreenState extends State<UserDetailScreen> {
                                   const SizedBox(
                                     height: 6,
                                   ),
-                                  StatusSwitch(
-                                    activo:
-                                        estado ==
-                                            'activo',
-                                    mensajeEstado:
-                                        _mensajeEstado,
-                                    mostrandoMensajeEstado:
-                                        _mostrandoMensajeEstado,
-                                    puedeCambiar:
-                                        puedeCambiarEstado(),
-                                    onChanged:
-                                        _cambiarEstado,
-                                  ),
+                                  
                                 ],
                               ),
                             ),

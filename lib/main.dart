@@ -9,6 +9,7 @@ import 'screens/cash_closures/start_cash_register_screen.dart';
 import 'screens/branches/branch_screen.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'screens/products/product_screen.dart';
+import 'screens/orders/orders_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -42,12 +43,13 @@ class MyApp extends StatelessWidget {
     routes: {
         for (final item in navItems)
           item.route: (_) =>
-              PlaceholderScreen(title: item.label, route: item.route),
+        PlaceholderScreen(title: item.label, route: item.route),
         '/login': (_) => const LoginScreen(),
         '/usuarios': (_) => const UsersScreen(),
         '/sucursales': (_) => const BranchesScreen(),
          '/productos': (_) => const ProductScreen(),
         '/start-cash-register': (_) => const StartCashRegisterScreen(),
+        '/pedidos': (_) => const OrdersScreen(),
       },
     );
   }
@@ -57,7 +59,6 @@ class MyApp extends StatelessWidget {
 class PlaceholderScreen extends StatelessWidget {
   final String title;
   final String route;
-
   const PlaceholderScreen({
     super.key,
     required this.title,

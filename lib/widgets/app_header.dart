@@ -10,11 +10,9 @@ const Color kBlueUser = Color.fromARGB(255, 99, 183, 196);
 const Color kDark = Color(0xFF1E1E1E);
 const double kWebBreakpoint = 800;
 const String kLogoAsset = 'assets/logo.png';
-
 class NavItem {
   final String label;
   final String route;
-
   const NavItem(this.label, this.route);
 }
 
@@ -26,11 +24,9 @@ const List<NavItem> navItems = [
   NavItem('Sucursales', '/sucursales'),
   NavItem('Cortes', '/cortes'),
 ];
-
 class AppHeader extends StatelessWidget implements PreferredSizeWidget {
   final String currentRoute;
   final String userName;
-
   const AppHeader({
     super.key,
     required this.currentRoute,
@@ -178,7 +174,6 @@ class AppHeader extends StatelessWidget implements PreferredSizeWidget {
 
 class _Logo extends StatelessWidget {
   final double size;
-
   const _Logo({
     required this.size,
   });
@@ -191,11 +186,9 @@ class _Logo extends StatelessWidget {
     );
   }
 }
-
 class _NavButton extends StatelessWidget {
   final NavItem item;
   final bool selected;
-
   const _NavButton({
     required this.item,
     required this.selected,
@@ -215,14 +208,14 @@ class _NavButton extends StatelessWidget {
           return;
         }
         if (item.route == '/productos') {
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(
-        builder: (_) => const ProductScreen(),
-      ),
-    );
-    return;
-  }
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (_) => const ProductScreen(),
+          ),
+        );
+        return;
+      }
         if (!selected) {
           Navigator.pushReplacementNamed(
             context,
@@ -252,7 +245,6 @@ class _NavButton extends StatelessWidget {
 class _UserMenu extends StatelessWidget {
   final String userName;
   final bool compact;
-
   const _UserMenu({
     required this.userName,
     required this.compact,
@@ -260,8 +252,8 @@ class _UserMenu extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    
     return PopupMenuButton<String>(
+      tooltip: '',
       offset: const Offset(0, 8),
       position: PopupMenuPosition.under,
       elevation: 8,
@@ -293,7 +285,6 @@ class _UserMenu extends StatelessWidget {
           );
         }
       },
-
       itemBuilder: (_) => [
         const PopupMenuItem(
           value: 'profile',
@@ -301,12 +292,11 @@ class _UserMenu extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               Icon(
-                Icons.person_outline,
+                Icons.person,
                 size: 21,
-                color: Colors.black87,
+                color: kBlueUser
               ),
               SizedBox(width: 10),
-              
               Text(
                 'Perfil',
                 style: TextStyle(
@@ -317,7 +307,6 @@ class _UserMenu extends StatelessWidget {
             ],
           ),
         ),
-
         const PopupMenuItem(
           value: 'logout',
           child: Row(
@@ -332,7 +321,7 @@ class _UserMenu extends StatelessWidget {
                 'Cerrar sesión',
                 style: TextStyle(
                   fontSize: 15,
-                  color: Colors.black87,
+                  color: Color(0xFFF4512A),
                 ),
               ),
             ],
@@ -457,13 +446,11 @@ class AppDrawer extends StatelessWidget {
                 ],
               ),
             ),
-
             const Divider(
               color: Colors.white24,
               height: 1,
             ),
             const SizedBox(height: 12),
-           
             for (final item in itemsVisibles)
               _DrawerItem(
                 item: item,

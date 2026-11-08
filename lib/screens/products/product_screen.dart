@@ -9,6 +9,7 @@ import '../../widgets/app_header.dart';
 import '../../widgets/new.dart';
 import 'product_detail_screen.dart';
 import 'product_form_screen.dart';
+import 'package:intl/intl.dart';
 
 const _red = Color(0xFFF4512A);
 const _borderGrey = Color(0xFFE0E0E0);
@@ -21,12 +22,17 @@ const _muted = Color(0xFF666666);
 const _hint = Color(0xFF9E9E9E);
 
 class ProductScreen extends StatefulWidget {
-  const ProductScreen({super.key});
+  const ProductScreen({
+    super.key,
+    this.initialBranchId,
+  });
+  final String? initialBranchId;
   @override
   State<ProductScreen> createState() => _ProductScreenState();
 }
 
-class _ProductScreenState extends State<ProductScreen> {
+class _ProductScreenState extends State<ProductScreen>with SingleTickerProviderStateMixin {
+  late final AnimationController _stockAlertController;
   static const int _pageSize = 5;
   final FirebaseFirestore _db = FirebaseFirestore.instance;
   final InventoryService _inventoryService = InventoryService();
@@ -46,6 +52,7 @@ class _ProductScreenState extends State<ProductScreen> {
   Set<String> _disabledCategories = {};
   Set<String> _disabledSaleTypes = {};
   String? _branchFilter;
+  bool _showOnlySelectedBranchProducts = false;
   String _search = '';
   int _page = 0;
   String? _filter;
@@ -76,10 +83,20 @@ class _ProductScreenState extends State<ProductScreen> {
 }
 
   @override
-  void initState() {
-    super.initState();
+ void initState() {
+  super.initState();
+  if (widget.initialBranchId != null &&
+    widget.initialBranchId!.isNotEmpty) {
+    _branchFilter = widget.initialBranchId;
+    _showOnlySelectedBranchProducts = true;
+  }
+  _stockAlertController = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1100),
+   )..repeat(reverse: true);
     if (_isEmployee && _assignedBranchIds.isNotEmpty) {
       _branchFilter = _assignedBranchIds.first;
+      _showOnlySelectedBranchProducts = true;
     }
     _inventorySub = _inventoryService.watchInventory().listen(
       (rows) {
@@ -140,6 +157,7 @@ class _ProductScreenState extends State<ProductScreen> {
     _inventorySub?.cancel();
     _branchSub?.cancel();
     _catalogSettingsSub?.cancel();
+    _stockAlertController.dispose();
     _searchCtrl.dispose();
     super.dispose();
   }
@@ -183,10 +201,13 @@ class _ProductScreenState extends State<ProductScreen> {
     return double.tryParse(_text(value).replaceAll(',', '')) ?? 0;
   }
 
-  String _money(dynamic value) {
-    return '\$${_priceValue(value).toStringAsFixed(2)}';
+  String _formatNumber(dynamic value) {
+  final number = _priceValue(value);
+  return NumberFormat('#,##0.00', 'en_US').format(number);
   }
-
+  String _money(dynamic value) {
+    return '\$${_formatNumber(value)}';
+  }
   bool _matchesSearch(Map<String, dynamic> data) {
     if (_search.isEmpty) return true;
     return [
@@ -270,18 +291,18 @@ class _ProductScreenState extends State<ProductScreen> {
     }
     return total;
   }
-
   int _outOfStockCount() {
-    final filtered = _inventoryRows.where(
-      (item) =>
-          item['inventory_status'] == true &&
-          _inventoryMatchesBranch(item),
-    );
-    return filtered
-        .where((item) => _priceValue(item['stock']) <= 0)
+    final productIds = _inventoryRows
+        .where((item) =>
+            item['inventory_status'] == true &&
+            _inventoryMatchesBranch(item))
+        .map(_inventoryProductId)
+        .where((id) => id.isNotEmpty)
+        .toSet();
+    return productIds
+        .where((id) => _stockForProduct(id) <= 10)
         .length;
   }
-
   String _saleTypeId(Map<String, dynamic> data) {
     for (final key in [
       'id_type',
@@ -544,8 +565,9 @@ class _ProductScreenState extends State<ProductScreen> {
                 Expanded(
                   child: Text(
                     name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+                  maxLines: MediaQuery.sizeOf(context).width < 600 ? 2 : 1,
+                  softWrap: true,
+                  overflow: TextOverflow.ellipsis,
                   ),
                 ),
                 if (_branchFilter == id)
@@ -563,6 +585,7 @@ class _ProductScreenState extends State<ProductScreen> {
     }
     setState(() {
       _branchFilter = selectedBranch;
+      _showOnlySelectedBranchProducts = selectedBranch != null;
       _categoryFilter = null;
       _saleTypeFilter = null;
       _disabledCategories = {};
@@ -836,7 +859,29 @@ class _ProductScreenState extends State<ProductScreen> {
       ),
     );
   }
-
+  Widget _circuloSeleccion(bool selected) {
+    return Container(
+      width: 21,
+      height: 21,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: selected ? _accent : Colors.white,
+        border: selected
+            ? null
+            : Border.all(
+                color: const Color(0xFFBDBDBD),
+                width: 2.5,
+              ),
+      ),
+      child: selected
+          ? const Icon(
+              Icons.check_rounded,
+              size: 16,
+              color: Colors.white,
+            )
+          : null,
+    );
+  }
   Widget _catalogActivationControl({
     required bool active,
     required ValueChanged<bool> onChanged,
@@ -980,13 +1025,7 @@ class _ProductScreenState extends State<ProductScreen> {
                             : () => Navigator.of(itemContext).pop(id),
                         child: Row(
                           children: [
-                            Icon(
-                              selectedCategory
-                                  ? Icons.check_circle_rounded
-                                  : Icons.circle_outlined,
-                              size: 19,
-                              color: selectedCategory ? _accent : _muted,
-                            ),
+                            _circuloSeleccion(selectedCategory),
                             const SizedBox(width: 9),
                             Expanded(
                               child: Text(
@@ -1003,9 +1042,10 @@ class _ProductScreenState extends State<ProductScreen> {
                         ),
                       ),
                     ),
-                    if (_canManageCatalog && _branchFilter != null) ...[
+                  if (_branchFilter != null) ...[
                       const SizedBox(width: 6),
-                      _catalogActivationControl(
+                     _canManageCatalog
+                    ? _catalogActivationControl(
                         active: itemActive,
                         onChanged: (newValue) {
                           setItemState(() => itemActive = newValue);
@@ -1015,7 +1055,8 @@ class _ProductScreenState extends State<ProductScreen> {
                             active: newValue,
                           );
                         },
-                      ),
+                      )
+                    : const SizedBox(width: 132),
                     ],
                   ],
                 );
@@ -1141,13 +1182,7 @@ class _ProductScreenState extends State<ProductScreen> {
                             : () => Navigator.of(itemContext).pop(id),
                         child: Row(
                           children: [
-                            Icon(
-                              selectedType
-                                  ? Icons.check_circle_rounded
-                                  : Icons.circle_outlined,
-                              size: 19,
-                              color: selectedType ? _accent : _muted,
-                            ),
+                           _circuloSeleccion(selectedType),
                             const SizedBox(width: 9),
                             Expanded(
                               child: Text(
@@ -1164,19 +1199,21 @@ class _ProductScreenState extends State<ProductScreen> {
                         ),
                       ),
                     ),
-                    if (_canManageCatalog && _branchFilter != null) ...[
+                    if (_branchFilter != null) ...[
                       const SizedBox(width: 6),
-                      _catalogActivationControl(
-                        active: itemActive,
-                        onChanged: (newValue) {
-                          setItemState(() => itemActive = newValue);
-                          _toggleCatalogItem(
-                            field: 'disabled_sale_types',
-                            id: id,
-                            active: newValue,
-                          );
-                        },
-                      ),
+                      _canManageCatalog
+                      ? _catalogActivationControl(
+                          active: itemActive,
+                          onChanged: (newValue) {
+                            setItemState(() => itemActive = newValue);
+                            _toggleCatalogItem(
+                              field: 'disabled_sale_types',
+                              id: id,
+                              active: newValue,
+                            );
+                          },
+                        )
+                      : const SizedBox(width: 132),
                     ],
                   ],
                 );
@@ -1210,118 +1247,186 @@ class _ProductScreenState extends State<ProductScreen> {
     );
   }
 
-  Widget _barraBusquedaYRegistro(
-    Map<String, int> counts,
-  ) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        _searchField(),
-        const SizedBox(height: 10),
-        Row(
-          children: [
+
+Widget _barraBusquedaYRegistro(
+  Map<String, int> counts,
+) {
+  return LayoutBuilder(
+    builder: (context, constraints) {
+      final mobile = constraints.maxWidth < 600;
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _searchField(),
+          const SizedBox(height: 10),
+          if (mobile) ...[
             if (!_isEmployee) ...[
-              Expanded(
-                child: _branchFilterField(),
+              Row(
+                children: [
+                  Expanded(child: _branchFilterField()),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _categoryFilterField(counts),
+                  ),
+                ],
               ),
-              const SizedBox(width: 8),
+              const SizedBox(height: 8),
+            ] else ...[
+              _categoryFilterField(counts),
+              const SizedBox(height: 8),
             ],
-            Expanded(
-              child: _categoryFilterField(counts),
+            Row(
+              children: [
+                Expanded(child: _saleTypeFilterField()),
+                const SizedBox(width: 8),
+                Expanded(child: _nuevoButton()),
+              ],
             ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: _saleTypeFilterField(),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: _nuevoButton(),
+          ] else ...[
+            Row(
+              children: [
+                if (!_isEmployee) ...[
+                  Expanded(child: _branchFilterField()),
+                  const SizedBox(width: 8),
+                ],
+                Expanded(
+                  child: _categoryFilterField(counts),
+                ),
+                const SizedBox(width: 8),
+                Expanded(child: _saleTypeFilterField()),
+                const SizedBox(width: 8),
+                Expanded(child: _nuevoButton()),
+              ],
             ),
           ],
-        ),
-      ],
-    );
-  }
+        ],
+      );
+    },
+  );
+}
 
-  Widget _summaryCard({
-    required String filtro,
-    required Color color,
-    required String label,
-    required int value,
-    required String note,
-  }) {
-    final selected = _filter == filtro;
-    return InkWell(
-      borderRadius: BorderRadius.circular(14),
-      onTap: filtro == 'agotados'
-          ? null
-          : () {
-              setState(() {
-                _filter = selected ? null : filtro;
-                _page = 0;
-              });
-            },
-      child: Container(
-        height: 104,
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(
-            color: selected ? color : _borderGrey,
-            width: selected ? 1.6 : 1,
+
+  
+Widget _summaryCard({
+  required String filtro,
+  required Color color,
+  required String label,
+  required int value,
+  required String note,
+}) {
+  final selected = _filter == filtro;
+  final alert = filtro == 'agotados' && value > 0;
+
+  return AnimatedBuilder(
+    animation: _stockAlertController,
+    builder: (context, _) {
+      final pulse = alert ? _stockAlertController.value : 0.0;
+
+      return InkWell(
+        borderRadius: BorderRadius.circular(14),
+       onTap: () {
+          final clearedBranch =
+              _showOnlySelectedBranchProducts && !_isEmployee;
+          setState(() {
+            _filter = selected ? null : filtro;
+            if (clearedBranch) {
+              _showOnlySelectedBranchProducts = false;
+              _branchFilter = null;
+              _categoryFilter = null;
+              _saleTypeFilter = null;
+              _disabledCategories = {};
+              _disabledSaleTypes = {};
+            }
+            _page = 0;
+          });
+          if (clearedBranch) {
+            _watchCatalogSettings();
+          }
+        },
+        child: Container(
+          height: 104,
+          decoration: BoxDecoration(
+            color: alert
+                ? Color.lerp(
+                    Colors.white,
+                    const Color(0xFFFFE0B2),
+                    pulse * 0.55,
+                  )!
+                : Colors.white,
+            boxShadow: alert
+                ? [
+                    BoxShadow(
+                      color: const Color(0xFFFF6D00)
+                          .withValues(alpha: 0.12 + pulse * 0.34),
+                      blurRadius: 5 + pulse * 16,
+                      spreadRadius: pulse * 2,
+                    ),
+                  ]
+                : null,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: alert
+                  ? const Color(0xFFE65100)
+                  : (selected ? color : _borderGrey),
+              width: alert ? 1.5 + pulse : (selected ? 1.6 : 1),
+            ),
           ),
-        ),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(13),
-          child: Row(
-            children: [
-              Container(width: 4, color: color),
-              Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 5),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text(
-                        label,
-                        maxLines: 1,
-                        textAlign: TextAlign.center,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          color: _textDark,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(13),
+            child: Row(
+              children: [
+                Container(width: 4, color: color),
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 5),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          label,
+                          maxLines: 1,
+                          textAlign: TextAlign.center,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: _textDark,
+                          ),
                         ),
-                      ),
-                      Text(
-                        '$value',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          fontSize: 27,
-                          fontWeight: FontWeight.w800,
-                          color: color,
+                        Text(
+                          NumberFormat('#,##0', 'en_US').format(value),
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontSize: 27,
+                            fontWeight: FontWeight.w800,
+                            color: color,
+                          ),
                         ),
-                      ),
-                      Text(
-                        note,
-                        maxLines: 1,
-                        textAlign: TextAlign.center,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 10,
-                          color: Colors.black45,
+                        Text(
+                          alert
+                              ? '⚠ ¡Revisar! 10 piezas o menos'
+                              : note,
+                          maxLines: 1,
+                          textAlign: TextAlign.center,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 10,
+                            color: Colors.black45,
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
-      ),
-    );
-  }
+      );
+    },
+  );
+}
+
 
   Widget _summaryCards(
     List<QueryDocumentSnapshot<Map<String, dynamic>>> all,
@@ -1356,7 +1461,7 @@ class _ProductScreenState extends State<ProductScreen> {
         color: const Color(0xFFE65100),
         label: 'Productos agotados',
         value: agotados,
-        note: 'sin existencias',
+        note: '10 piezas o menos',
       ),
     ];
     return LayoutBuilder(
@@ -1415,58 +1520,58 @@ class _ProductScreenState extends State<ProductScreen> {
     );
   }
 
-Widget _imagePlaceholder() {
-  return const Center(
-    child: Icon(
-            Icons.add_photo_alternate_outlined,
-            color: _accent ,
-            size: 35,
-          ),
-  );
-}
-
-Widget _productImage(String imageUrl) {
-  final value = imageUrl.trim();
-  if (value.isEmpty) return _imagePlaceholder();
-  if (value.startsWith('data:image')) {
-    try {
-      return Image.memory(
-        base64Decode(value.split(',').last),
-        width: double.infinity,
-        height: double.infinity,
-        fit: BoxFit.cover,
-        filterQuality: FilterQuality.high,
-        gaplessPlayback: true,
-        errorBuilder: (_, _, _) => _imagePlaceholder(),
-      );
-    } catch (_) {
-      return _imagePlaceholder();
-    }
+  Widget _imagePlaceholder() {
+    return const Center(
+      child: Icon(
+              Icons.add_photo_alternate_outlined,
+              color: _accent ,
+              size: 35,
+            ),
+    );
   }
-  return Image.network(
-    value,
-    width: double.infinity,
-    height: double.infinity,
-    fit: BoxFit.cover,
-    filterQuality: FilterQuality.high,
-    gaplessPlayback: true,
-    errorBuilder: (_, _, _) => _imagePlaceholder(),
-  );
-}
 
-Widget _productImageBox(String imageUrl) {
-  return Container(
-    width: 72,
-    height: 72,
-    decoration: BoxDecoration(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(12),
-      border: Border.all(color: _borderGrey),
-    ),
-    clipBehavior: Clip.antiAlias,
-    child: _productImage(imageUrl),
-  );
-}
+  Widget _productImage(String imageUrl) {
+    final value = imageUrl.trim();
+    if (value.isEmpty) return _imagePlaceholder();
+    if (value.startsWith('data:image')) {
+      try {
+        return Image.memory(
+          base64Decode(value.split(',').last),
+          width: double.infinity,
+          height: double.infinity,
+          fit: BoxFit.cover,
+          filterQuality: FilterQuality.high,
+          gaplessPlayback: true,
+          errorBuilder: (_, _, _) => _imagePlaceholder(),
+        );
+      } catch (_) {
+        return _imagePlaceholder();
+      }
+    }
+    return Image.network(
+      value,
+      width: double.infinity,
+      height: double.infinity,
+      fit: BoxFit.cover,
+      filterQuality: FilterQuality.high,
+      gaplessPlayback: true,
+      errorBuilder: (_, _, _) => _imagePlaceholder(),
+    );
+  }
+
+  Widget _productImageBox(String imageUrl) {
+    return Container(
+      width: 72,
+      height: 72,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: _borderGrey),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: _productImage(imageUrl),
+    );
+  }
 
   Widget _lineaInfo(String label, String value) {
     return Text.rich(
@@ -1519,7 +1624,6 @@ Widget _productImageBox(String imageUrl) {
         ),
       ],
     );
-
     return width == null
         ? content
         : SizedBox(width: width, child: content);
@@ -1527,7 +1631,6 @@ Widget _productImageBox(String imageUrl) {
 
   Widget _statusControl(String id, bool active) {
     final color = active ? _green : _red;
-
     return SizedBox(
       width: 174,
       child: Row(
@@ -1562,88 +1665,181 @@ Widget _productImageBox(String imageUrl) {
     );
   }
 
-  Widget _stockDato(String productId) {
-    return _dato('Existencias', '${_stockForProduct(productId)}');
-  }
+  
+Widget _stockDato(String productId) {
+  return _dato(
+    'Existencias',
+    NumberFormat('#,##0.00', 'en_US')
+        .format(_stockForProduct(productId)),
+  );
+}
 
-  Widget _productCard(
-    QueryDocumentSnapshot<Map<String, dynamic>> doc,
-    int numero,
-    bool mobile,
-  ) {
-    final data = doc.data();
-    final id = doc.id;
-    final name = _productName(data);
-    final barcode = _text(data['barcode']);
-    final description = _text(data['description_product']);
-    final type = _text(data['typeProduct']);
-    final category = _categoryName(data);
-    final imageUrl = _text(data['image_url']);
-    final active = _isActive(data);
-    final price = _money(data['prince']);
-    final tipo = type.isEmpty ? '—' : _capitalize(type);
-    final info = Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          name,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: const TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.w700,
-            color: _textDark,
-          ),
+Widget _productCard(
+  QueryDocumentSnapshot<Map<String, dynamic>> doc,
+  int numero,
+  bool mobile,
+) {
+  final data = doc.data();
+  final id = doc.id;
+  final name = _productName(data);
+  final barcode = _text(data['barcode']);
+  final description = _text(data['description_product']);
+  final type = _text(data['typeProduct']);
+  final category = _categoryName(data);
+  final imageUrl = _text(data['image_url']);
+  final active = _isActive(data);
+  final price = _money(data['prince']);
+  final tipo = type.isEmpty ? '—' : _capitalize(type);
+  final info = Column(
+    mainAxisAlignment: MainAxisAlignment.center,
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Text(
+        name,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: const TextStyle(
+          fontSize: 16,
+          fontWeight: FontWeight.w700,
+          color: _textDark,
         ),
-        const SizedBox(height: 5),
-        _lineaInfo('Código', barcode.isEmpty ? '—' : barcode),
-        const SizedBox(height: 4),
-        _lineaInfo(
-          'Descripción',
-          description.isEmpty ? '—' : description,
-        ),
-      ],
-    );
-    return _PressableProductCard(
-      onTap: () => _openDetail(id),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(13),
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final wide = constraints.maxWidth >= 1040;
-            if (wide) {
-              return Stack(
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(54, 12, 12, 12),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.center,
+      ),
+      const SizedBox(height: 5),
+      _lineaInfo(
+        'Código',
+        barcode.isEmpty ? '—' : barcode,
+      ),
+      const SizedBox(height: 4),
+      _lineaInfo(
+        'Descripción',
+        description.isEmpty ? '—' : description,
+      ),
+    ],
+  );
+  return _PressableProductCard(
+    onTap: () => _openDetail(id),
+    child: ClipRRect(
+      borderRadius: BorderRadius.circular(13),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final wide = constraints.maxWidth >= 1040;
+          final isMobile =
+              MediaQuery.sizeOf(context).width < 600;
+          if (wide) {
+            return Stack(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(
+                    54, 12, 12, 12,
+                  ),
+                  child: Row(
+                    crossAxisAlignment:
+                        CrossAxisAlignment.center,
+                    children: [
+                      _productImageBox(imageUrl),
+                      const SizedBox(width: 20),
+                      Expanded(child: info),
+                      const SizedBox(width: 16),
+                      _dato(
+                        'Categoría',
+                        category,
+                        width: 120,
+                      ),
+                      const SizedBox(width: 12),
+                      _dato(
+                        'Precio',
+                        price,
+                        width: 80,
+                      ),
+                      const SizedBox(width: 12),
+                      SizedBox(
+                        width: 70,
+                        child: _stockDato(id),
+                      ),
+                      const SizedBox(width: 12),
+                      _dato(
+                        'Tipo',
+                        tipo,
+                        width: 80,
+                      ),
+                      const SizedBox(width: 16),
+                      _canManageCatalog
+                          ? _statusControl(id, active)
+                          : const SizedBox(width: 174),
+                      const SizedBox(width: 12),
+                      const Text(
+                        'Ver detalles',
+                        style: TextStyle(
+                          color: _accent,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const Icon(
+                        Icons.chevron_right_rounded,
+                        color: _accent,
+                        size: 22,
+                      ),
+                    ],
+                  ),
+                ),
+                Positioned(
+                  left: 26,
+                  top: 24,
+                  bottom: 24,
+                  width: 4,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: active ? _accent : _red,
+                      borderRadius:
+                          BorderRadius.circular(4),
+                    ),
+                  ),
+                ),
+              ],
+            );
+          }
+          return Stack(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  30, 12, 12, 12,
+                ),
+                child: Column(
+                  crossAxisAlignment:
+                      CrossAxisAlignment.stretch,
+                  children: [
+                    Row(
+                      crossAxisAlignment:
+                          CrossAxisAlignment.center,
                       children: [
                         _productImageBox(imageUrl),
-                        const SizedBox(width: 20),
+                        const SizedBox(width: 12),
                         Expanded(child: info),
-                        const SizedBox(width: 16),
-                        _dato('Categoría', category, width: 120),
-                        const SizedBox(width: 12),
-                        _dato('Precio', price, width: 80),
-                        const SizedBox(width: 12),
-                        SizedBox(width: 70, child: _stockDato(id)),
-                        const SizedBox(width: 12),
-                        _dato('Tipo', tipo, width: 80),
-                        if (_canManageCatalog) ...[
-                          const SizedBox(width: 16),
-                          _statusControl(id, active),
-                          const SizedBox(width: 12),
-                        ],
-                        const Text(
-                          'Ver detalles',
-                          style: TextStyle(
-                            color: _accent,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
+                        if (isMobile) ...[
+                          InkWell(
+                            onTap: () => _openDetail(id),
+                            borderRadius:
+                                BorderRadius.circular(6),
+                            child: const Padding(
+                              padding:
+                                  EdgeInsets.symmetric(
+                                horizontal: 4,
+                                vertical: 8,
+                              ),
+                              child: Text(
+                                'Ver detalles',
+                                style: TextStyle(
+                                  color: _accent,
+                                  fontSize: 12,
+                                  fontWeight:
+                                      FontWeight.w600,
+                                ),
+                              ),
+                            ),
                           ),
-                        ),
+                          const SizedBox(width: 4),
+                        ],
                         const Icon(
                           Icons.chevron_right_rounded,
                           color: _accent,
@@ -1651,81 +1847,65 @@ Widget _productImageBox(String imageUrl) {
                         ),
                       ],
                     ),
-                  ),
-                  Positioned(
-                    left: 26,
-                    top: 24,
-                    bottom: 24,
-                    width: 4,
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        color: active ? _accent : _red,
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                    ),
-                  ),
-                ],
-              );
-            }
-            return Stack(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(30, 12, 12, 12),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.center,
-                        children: [
-                          _productImageBox(imageUrl),
-                          const SizedBox(width: 12),
-                          Expanded(child: info),
-                          const Icon(
-                            Icons.chevron_right_rounded,
-                            color: _accent,
-                            size: 22,
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _dato(
+                            'Categoría',
+                            category,
                           ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          Expanded(child: _dato('Categoría', category)),
-                          Expanded(child: _dato('Precio', price)),
-                          Expanded(child: _stockDato(id)),
-                          Expanded(child: _dato('Tipo', tipo)),
-                        ],
-                      ),
-                      if (_canManageCatalog) ...[
-                        const SizedBox(height: 8),
-                        Align(
-                          alignment: Alignment.centerRight,
-                          child: _statusControl(id, active),
+                        ),
+                        Expanded(
+                          child: _dato(
+                            'Precio',
+                            price,
+                          ),
+                        ),
+                        Expanded(
+                          child: _stockDato(id),
+                        ),
+                        Expanded(
+                          child: _dato(
+                            'Tipo',
+                            tipo,
+                          ),
                         ),
                       ],
-                    ],
-                  ),
-                ),
-                Positioned(
-                  left: 12,
-                  top: 12,
-                  bottom: 12,
-                  width: 4,
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      color: active ? _accent : _red,
-                      borderRadius: BorderRadius.circular(4),
                     ),
+                    if (_canManageCatalog) ...[
+                      const SizedBox(height: 12),
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: _statusControl(
+                          id,
+                          active,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              Positioned(
+                left: 12,
+                top: 12,
+                bottom: 12,
+                width: 4,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: active ? _accent : _red,
+                    borderRadius:
+                        BorderRadius.circular(4),
                   ),
                 ),
-              ],
-            );
-          },
-        ),
+              ),
+            ],
+          );
+        },
       ),
-    );
-  }
-
+    ),
+  );
+}
   Widget _pageButton(
     String label, {
     bool selected = false,
@@ -1759,14 +1939,17 @@ Widget _productImageBox(String imageUrl) {
                     ? Icons.chevron_left_rounded
                     : Icons.chevron_right_rounded,
                 size: 23,
-                color: onTap == null ? Colors.black26 : Colors.black,
+                color: onTap == null
+                    ? Colors.black26
+                    : Colors.black,
               )
             : Text(
                 label,
                 style: TextStyle(
                   fontSize: 14,
-                  fontWeight:
-                      selected ? FontWeight.bold : FontWeight.w500,
+                  fontWeight: selected
+                      ? FontWeight.bold
+                      : FontWeight.w500,
                   color: Colors.black,
                 ),
               ),
@@ -1921,10 +2104,24 @@ Widget _productImageBox(String imageUrl) {
                 }
                 counts['__none__'] = sinCategoria;
                 final products = all.where((doc) {
+                  if (_showOnlySelectedBranchProducts &&
+                  !_productBelongsToBranch(doc.id)) {
+                  return false;
+                  }
                   final data = doc.data();
                   if (!_matchesSearch(data)) return false;
                   if (!_productBelongsToBranch(doc.id)) {
                     return false;
+                  }
+                  if (_filter == 'agotados') {
+                  final hasInventory = _inventoryRows.any((item) =>
+                      item['inventory_status'] == true &&
+                      _inventoryMatchesBranch(item) &&
+                      _inventoryProductId(item) == doc.id);
+
+                  if (!hasInventory || _stockForProduct(doc.id) > 10) {
+                    return false;
+                    }
                   }
                   if (_filter == 'activas' && !_isActive(data)) {
                     return false;
@@ -2054,7 +2251,6 @@ class _PressableProductCard extends StatefulWidget {
   State<_PressableProductCard> createState() =>
       _PressableProductCardState();
 }
-
 class _PressableProductCardState
     extends State<_PressableProductCard> {
   bool _pressed = false;

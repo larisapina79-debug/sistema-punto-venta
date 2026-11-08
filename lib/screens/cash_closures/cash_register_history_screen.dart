@@ -630,9 +630,9 @@ Widget _periodSelector() {
     height: 48,
     padding: const EdgeInsets.all(3),
     decoration: BoxDecoration(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(12),
-      border: Border.all(color: _kBorderLight),
+    color: Colors.white,
+    borderRadius: BorderRadius.circular(14),
+    border: Border.all(color: _kBorderLight),
     ),
     child: Row(
       children: _periods.map((label) {
@@ -641,7 +641,7 @@ Widget _periodSelector() {
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 1),
             child: InkWell(
-              borderRadius: BorderRadius.circular(9),
+              borderRadius: BorderRadius.circular(14),
               onTap: () {
                 setState(() {
                   _period = label;
@@ -657,14 +657,14 @@ Widget _periodSelector() {
                 padding: const EdgeInsets.symmetric(horizontal: 4),
                 decoration: BoxDecoration(
                   color: selected
-                      ? _kGreen.withValues(alpha: 0.15)
-                      : Colors.transparent,
-                  borderRadius: BorderRadius.circular(9),
-                  border: Border.all(
-                    color: selected ? _kGreen : Colors.transparent,
-                    width: 1.2,
-                  ),
+                ? _kGreen.withValues(alpha: 0.12)
+                : Colors.transparent,
+                borderRadius: BorderRadius.circular(11),
+                border: Border.all(
+                  color: selected ? _kGreen : Colors.transparent,
+                  width: 1.5,
                 ),
+              ),
                 child: FittedBox(
                   fit: BoxFit.scaleDown,
                   child: Text(
@@ -674,9 +674,9 @@ Widget _periodSelector() {
                     style: TextStyle(
                       color: _kBlack,
                       fontSize: 13,
-                      fontWeight: selected
-                          ? FontWeight.w700
-                          : FontWeight.w600,
+                       fontWeight: selected 
+                       ? FontWeight.w700 
+                       : FontWeight.w500,
                     ),
                   ),
                 ),
@@ -715,15 +715,15 @@ Widget _periodSelector() {
   Widget _dateField({required bool isFrom}) {
     final date = isFrom ? _from : _to;
     return InkWell(
-      borderRadius: BorderRadius.circular(12),
+      borderRadius: BorderRadius.circular(14),
       onTap: () => _pickDate(isFrom: isFrom),
       child: Container(
         height: 46,
         padding: const EdgeInsets.symmetric(horizontal: 12),
         decoration: BoxDecoration(
-          color: _kFieldBg,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: _kBorderLight),
+          color: _kGreen.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: _kGreen, width: 1.5),
         ),
         child: Row(
           children: [
@@ -741,7 +741,7 @@ Widget _periodSelector() {
                 style: const TextStyle(
                   color: _kBlack,
                   fontSize: 13,
-                  fontWeight: FontWeight.w500,
+                  fontWeight: FontWeight.w700,
                 ),
               ),
             ),
@@ -753,7 +753,6 @@ Widget _periodSelector() {
 
   Widget _branchDropdown() {
     const allKey = '__all__';
-    final active = _branch != null;
     return PopupMenuButton<String>(
       tooltip: '',
       padding: EdgeInsets.zero,
@@ -778,18 +777,29 @@ Widget _periodSelector() {
           return PopupMenuItem<String>(
             value: value,
             height: 44,
-            child: Text(
-              label,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: selected ? _kGreen : _kBlack,
-                fontSize: 14,
-                fontWeight:
-                    selected ? FontWeight.w700 : FontWeight.w500,
+              child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    label,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: _kBlack,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+                if (selected)
+                  const Icon(
+                    Icons.check_rounded,
+                    color: _kGreen,
+                    size: 22,
+                    ),
+                ],
               ),
-            ),
-          );
-        }
+            );
+          }
         return [
           option(allKey, 'Todas las sucursales'),
           ..._allBranches.map((b) => option(b, b)),
@@ -800,29 +810,27 @@ Widget _periodSelector() {
         width: double.infinity,
         padding: const EdgeInsets.only(left: 12, right: 8),
         decoration: BoxDecoration(
-          color: active
-              ? _kGreen.withValues(alpha: 0.15)
-              : _kFieldBg,
+          color: _kGreen.withValues(alpha: 0.12),
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: active ? _kGreen : _kBorderLight,
-            width: active ? 1.4 : 1,
-          ),
+          border: Border.all(color: _kGreen, width: 1.5),
         ),
         child: Row(
           children: [
             Expanded(
+             child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
               child: Text(
                 _branch ?? 'Todas las sucursales',
                 maxLines: 1,
-                overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
                   color: _kBlack,
                   fontSize: 13,
-                  fontWeight: FontWeight.w600,
+                  fontWeight: FontWeight.w700,
                 ),
               ),
             ),
+          ),
             const SizedBox(width: 4),
             const Icon(
               Icons.keyboard_arrow_down_rounded,
@@ -889,13 +897,21 @@ Widget _periodSelector() {
                   const SizedBox(width: 10),
                   Expanded(child: to),
                 ],
-              ),
+              ),         
               const SizedBox(height: 12),
               Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
-                  Expanded(child: branch),
+                  Expanded(
+                    child: branch,
+                  ),
                   const SizedBox(width: 10),
-                  Expanded(flex: 2, child: _initialCashButton()),
+                  Expanded(
+                    child: SizedBox(
+                      height: 46,
+                      child: _initialCashButton(),
+                    ),
+                  ),
                 ],
               ),
             ],
@@ -916,7 +932,8 @@ Widget _periodSelector() {
           side: const BorderSide(color: _kGreen, width: 1.5),
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(14),
+            side: const BorderSide(color: _kGreen, width: 1.5),
           ),
         ),
         child: const FittedBox(
@@ -926,7 +943,7 @@ Widget _periodSelector() {
             maxLines: 1,
             style: TextStyle(
               color: Colors.black,
-              fontSize: 14,
+              fontSize: 12,
               fontWeight: FontWeight.w700,
             ),
           ),
@@ -957,7 +974,7 @@ Widget _periodSelector() {
           ) ??
           'Sucursal';
       bool branchOpen = false;
-      _initialCashController.clear();
+      _initialCashController.text = '0.00';
       final initialDoc = await FirebaseFirestore.instance
           .collection('branch_initial_cash')
           .doc(selectedBranchId)
@@ -1168,11 +1185,17 @@ Widget _periodSelector() {
                       controller: _initialCashController,
                       cursorColor: _kGreenDark,
                       keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                      onTapOutside: (_) {
+                      if (_initialCashController.text.trim().isEmpty) {
+                        _initialCashController.text = '0.00';
+                      }
+                      FocusScope.of(context).unfocus();
+                      },
                       inputFormatters: [_ThousandsDecimalInputFormatter()],
                       style: const TextStyle(color: Colors.black),
                       decoration: InputDecoration(
                         labelText: 'Efectivo inicial',
-                        floatingLabelStyle: const TextStyle(color: _kGreenDark),
+                        floatingLabelStyle: const TextStyle(color: Colors.black,),
                         hintText: '0.00',
                         prefixText: '\$ ',
                         suffixIcon: SizedBox(
@@ -1584,7 +1607,7 @@ Widget _periodSelector() {
       alignment: Alignment.center,
       decoration: BoxDecoration(
         color: bg,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(12),
         border: Border.all(color: border),
       ),
       child: Text(
